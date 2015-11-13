@@ -1,5 +1,8 @@
 package edu.rit.csh.scaladb.raft
 
+import java.nio.ByteBuffer
+import java.util.concurrent.LinkedBlockingQueue
+
 import com.twitter.conversions.time._
 import com.twitter.finagle.Thrift
 import com.twitter.finagle.filter.MaskCancelFilter
@@ -10,25 +13,36 @@ import com.typesafe.scalalogging.LazyLogging
 
 import java.util
 import java.util.Collections
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference, AtomicLong}
 
-import scala.annotation.tailrec
+import edu.rit.csh.scaladb.raft.storage.Storage
+import edu.rit.csh.scaladb.raft.RaftConfiguration._
+
 import scala.collection.JavaConversions._
 import scala.util.Random
 
-case class LogEntry(term: Int, index: Int, message: String)
-
-object ServerType extends Enumeration {
-  type ServerType = Value
-  val Follower, Leader, Candidate = Value
-}
-
-class RaftServer(self: String, others: Array[String]) extends LazyLogging {
+//                                  times out,
+//                                 new election
+//     |                             .-----.
+//     |                             |     |
+//     v         times out,          |     v     receives votes from
+// +----------+  starts election  +-----------+  majority of servers  +--------+
+// | Follower |------------------>| Candidate |---------------------->| Leader |
+// +----------+                   +-----------+                       +--------+
+//     ^ ^                              |                                 |
+//     | |    discovers current leader  |                                 |
+//     | |                 or new term  |                                 |
+//     | '------------------------------'                                 |
+//     |                                                                  |
+//     |                               discovers server with higher term  |
+//     '------------------------------------------------------------------'
+//
+//
+class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) extends LazyLogging {
 
   val timeoutThread = new Thread(new Runnable {
     override def run(): Unit = {
-      while (true) {
+      while (status.get() != ServerType.Leader) {
         val sleep = electionTimeout()
         Thread.sleep(sleep.inMilliseconds)
         // If a follower receives no communication over a period of time
@@ -42,6 +56,32 @@ class RaftServer(self: String, others: Array[String]) extends LazyLogging {
   })
   timeoutThread.start()
 
+  val heartbeatThread = new Thread(new Runnable {
+    override def run(): Unit = {
+      while (status.get() == ServerType.Leader) {
+        val sleep = 100.milliseconds
+        Thread.sleep(sleep.inMilliseconds)
+        val lst = Seq.empty[LogEntry]
+        entiresToSend.drainTo(lst)
+        logger.debug(s"sending append RPC with ${lst.size} entries")
+        val (prevLogIndex, prevLogTerm)  = lst match {
+          case x :: xs => (lst.get(x.index - 1).index, lst.get(x.index - 1).term)
+          case Nil => (0, 0)
+        }
+        val append = AppendEntries(
+          term = getCurrentTerm,
+          leaderId = self.id,
+          prevLogIndex = prevLogIndex,
+          prevLogTerm = prevLogTerm,
+          entires = lst.map(logEntryTotThrift),
+          leaderCommit = commitIndex.get)
+        peers.map { peer =>
+          appendClient(peer.address)
+        }
+
+      }
+    }
+  })
 
   // When servers start up, they begin as followers. A server remains in follower state
   // as long as it receives valid RPCs from a leader or candidate
@@ -54,7 +94,7 @@ class RaftServer(self: String, others: Array[String]) extends LazyLogging {
   // latest term server has seen (initialized to 0 on first boot, increases monotonically)
   private val currentTerm = new AtomicInteger(0)
   // candidateId that received vote in current term
-  private val votedFor = new AtomicReference[Option[String]](Option.empty)
+  private val votedFor = new AtomicReference[Option[Int]](None)
   // log entries; each entry contains command for state machine, and term when entry
   // as received by leader (first index is 1)
   private val log = Collections.synchronizedList(new util.ArrayList[LogEntry]())
@@ -71,23 +111,14 @@ class RaftServer(self: String, others: Array[String]) extends LazyLogging {
   // the last time the server has received a message from the server
   private val lastHeartbeat = new AtomicLong(0)
 
-  //
-  // volatile state on leaders
-  //
-
-  // for each server, index of the next log entry to send to that server
-  private val nextIndex = new ConcurrentHashMap[String, Int]()
-  //for each server, index of highest log entry known to be replicated on server
-  private val matchIndex = new ConcurrentHashMap[String, Int]()
-
-  others.foreach { other =>
-    nextIndex.put(other, 1 + commitIndex.get())
-    matchIndex.put(other, 0)
-  }
+  // the ID of the current leader
+  private val leaderId = new AtomicReference[Option[Int]](None)
 
   // reference to the futures that are sending the vote requests to the other servers.
   // a reference is kept so that they can be cancled when a heartbeat comes in from a leader.
   private val electionFuture = new AtomicReference[Option[Future[Seq[VoteResponse]]]](None)
+
+  private val entiresToSend = new LinkedBlockingQueue[LogEntry]()
 
   def getCurrentTerm: Int = currentTerm.get
 
@@ -95,9 +126,9 @@ class RaftServer(self: String, others: Array[String]) extends LazyLogging {
 
   def setTerm(term: Int): Unit = currentTerm.set(term)
 
-  def getVotedFor: Option[String] = votedFor.get
+  def getVotedFor: Option[Int] = votedFor.get
 
-  def setVotedFor(id: String): Unit = votedFor.set(Some(id))
+  def setVotedFor(id: Int): Unit = votedFor.set(Some(id))
 
   def clearVotedFor: Unit = votedFor.set(None)
 
@@ -137,7 +168,7 @@ class RaftServer(self: String, others: Array[String]) extends LazyLogging {
       if (term >= currentTerm.get()) {
         status.set(ServerType.Follower)
         // cancels the election process
-        electionFuture.get().foreach(_.raise(new RuntimeException("Cancelling election processes")))
+        electionFuture.get().foreach(_.raise(new FutureCancelledException))
       }
     }
     lastHeartbeat.set(System.nanoTime())
@@ -159,7 +190,9 @@ class RaftServer(self: String, others: Array[String]) extends LazyLogging {
   private def electionTimeout(): Duration = {
     val min = 150
     val max = 300
-    (min + Random.nextInt(max - min + 1)).milliseconds
+    val time = (min + Random.nextInt(max - min + 1)).milliseconds * 10
+    logger.debug(s"election timeout: $time")
+    time
   }
 
   /**
@@ -169,6 +202,7 @@ class RaftServer(self: String, others: Array[String]) extends LazyLogging {
   private def applyLog(log: LogEntry): Unit = {
     // TODO actually finish this
     System.out.println(log)
+
   }
 
   /**
@@ -186,10 +220,15 @@ class RaftServer(self: String, others: Array[String]) extends LazyLogging {
     retry andThen timeout andThen maskCancel andThen fun
   }
 
+  private def voteClient(address: String): RequestVote => Future[VoteResponse] =
+    createClient(Thrift.newIface[RaftService.FutureIface](address).vote)
+
+  private def appendClient(address: String): AppendEntries => Future[AppendResponse] =
+    createClient(Thrift.newIface[RaftService.FutureIface](address).append)
+
   /**
    * Starts the election process (5.2)
    */
-  @tailrec
   private def startElection(): Unit = {
     logger.info("starting election process")
 
@@ -199,44 +238,76 @@ class RaftServer(self: String, others: Array[String]) extends LazyLogging {
     status.set(ServerType.Candidate)
 
     // It then votes for itself
-    votedFor.set(Some(self))
-
-    // TODO Reset election timer
+    votedFor.set(Some(self.id))
 
     val index = commitIndex.get()
-    val otherServers = nextIndex.keys().toArray
-    val requestVote = RequestVote(term, self, index, term)
+    val requestVote = RequestVote(term, self.id, index, term)
 
     // sends requests for vote to all other servers
-    val futures = Future.collect(otherServers.filter(_ != self).map { server =>
-      logger.debug(s"sending RequestVote to $server")
-      val fun = Thrift.newIface[RaftService.FutureIface](server).vote _
-      createClient(fun)(requestVote)
+    val futures = Future.collect(peers.map { peer =>
+      logger.debug(s"sending RequestVote to ${peer.address}")
+      voteClient(peer.address)(requestVote)
+        .rescue { case exception =>
+          // returns a failed vote response when the server is unreachable
+          logger.debug(s"failed sending RequestVote to ${peer.address}")
+          Future { VoteResponse(term, false) }
+        }
     })
-    electionFuture.set(Some(futures))
+    electionFuture.set(Some(futures)) // sets the futures so that they can be cancelled
+    try {
+      val result = Await.result(futures, 100.milliseconds)
+      // the number of severs that vote yes for this server, plus 1 for voting for yourself
+      val votesYes = result.count(_._2)
+      logger.debug(s"received $votesYes yes vote(s)")
 
-    val result = Await.result(futures, 100.milliseconds)
-    electionFuture.set(None)
-    // the number of severs that vote yes for this server
-    val votesYes = 1 + result.count(_._2)
-    logger.debug(s"received $votesYes yes vote(s)")
+      // A candidate wins an election if it receives votes from a majority of the
+      // servers in the full cluster for the same term
+      if (votesYes > peers.length / 2) {
+        logger.debug("received enough votes to become leader")
+        // Once a candidate wins an election, it becomes leader.
+        status.set(ServerType.Leader)
 
-    // A candidate wins an election if it receives votes from a majority of the
-    // servers in the full cluster for the same term
-    if (votesYes > otherServers.length / 2) {
-      // Once a candidate wins an election, it becomes leader.
-      status.set(ServerType.Leader)
+        val (lastIndex, lastTerm) = log.lastOption match {
+          case Some(logEntry) => (logEntry.index, logEntry.term)
+          case None => (0, 0)
+        }
 
-      // It then sends heartbeat messages to all of the other servers to establish its
-      // authority and to prevent new elections.
-      val heartBeat = AppendEntries(term, self, log.last.index, log.last.term, Seq.empty, index)
-      otherServers.filter(_ != self).foreach { server =>
-        val fun = Thrift.newIface[RaftService.FutureIface](server).append _
-        createClient(fun)(heartBeat)
+        // It then sends heartbeat messages to all of the other servers to establish its
+        // authority and to prevent new elections.
+        val heartBeat = AppendEntries(term, self.id, lastIndex, lastTerm, Seq.empty, index)
+        peers.foreach { peer =>
+          appendClient(peer.address)(heartBeat).onFailure { exception =>
+            println(s"exception sending out initial heartbeat to ${peer.address}")
+          }
+        }
+
+        // When a leader first comes to power, it initializes all nextIndex values to the index
+        // just after the last one in its log
+        peers.foreach(peer => peer.nextIndex = lastIndex + 1)
+
+      } else { // If election timeout elapses: start new election
+        logger.debug("did not receive enough votes to become leader, restarting election...")
+        startElection()
       }
-    // If election timeout elapses: start new election
-    } else {
-      startElection()
+    } catch {
+      case ex: TimeoutException =>
+        electionFuture.set(None)
+        logger.debug("timeout exception during election process, restarting election processes")
+        startElection()
+      case ex: FutureCancelledException =>
+        electionFuture.set(None)
+        logger.debug("election process cancelled by other leader")
     }
   }
+
+  override def toString(): String =
+    s"""
+       |raft {
+       |  current term: ${currentTerm.get()}
+       |  state: ${status.get()}
+       |  commit index: ${commitIndex.get()}
+       |  leader id:
+       |  voted for: ${votedFor.get()}
+       |}
+     """.stripMargin
 }

@@ -3,7 +3,7 @@ package edu.rit.csh.scaladb.raft
 import com.twitter.util.Future
 import com.typesafe.scalalogging.LazyLogging
 
-class RaftServiceImpl(serverState: RaftServer) extends RaftService.FutureIface with LazyLogging {
+class RaftServiceImpl[K, V](serverState: RaftServer[K, V]) extends RaftService.FutureIface with LazyLogging {
 
   /**
    * Invoked by candidates to gather votes
@@ -31,7 +31,6 @@ class RaftServiceImpl(serverState: RaftServer) extends RaftService.FutureIface w
       if ((votedFor.contains(requestVote.candidateId) || votedFor.isEmpty) && requestVote.lastLogIndex >= commitIndex) {
         serverState.setVotedFor(requestVote.candidateId) // updates the current voted for
         VoteResponse(term = currentTerm, voteGranted = true)
-        serverState.setHeartbeat()
       } else {
         VoteResponse(term = currentTerm, voteGranted = false)
       }
@@ -39,9 +38,10 @@ class RaftServiceImpl(serverState: RaftServer) extends RaftService.FutureIface w
   }
 
   def append(entries: AppendEntries): Future[AppendResponse] = Future {
-    val currentTerm = serverState.getCurrentTerm
+    logger.debug("received AppendEntries RPC")
+    /*val currentTerm = serverState.getCurrentTerm
     val commitIndex = serverState.getCommitIndex
-
+    serverState.setHeartbeat(entries.term)
 
     // Reply false if term < currentTerm
     if (entries.term < currentTerm) {
@@ -54,8 +54,9 @@ class RaftServiceImpl(serverState: RaftServer) extends RaftService.FutureIface w
         } else {
           AppendResponse(term = currentTerm, success = true)
         }
-        case None => AppendResponse(term = currentTerm, success = false)
+        case None =>AppendResponse(term = currentTerm, success = false)
       }
-    }
+    }*/
+    AppendResponse(serverState.getCurrentTerm, true)
   }
 }
