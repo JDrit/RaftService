@@ -33,9 +33,6 @@ case class Peer(id: Int, address: String, var nextIndex: Int, var matchIndex: In
        |  matchIndex: $matchIndex
        |}
      """.stripMargin
-
-  implicit def toThrfit(): Server = Server(id, address)
-
 }
 
 /**
@@ -75,10 +72,12 @@ object RaftConfiguration {
 
   implicit def RaftConfigToThrift(config: RaftConfiguration): Configuration = ???
 
-  implicit def logEntryTotThrift(entry: LogEntry): Entry = entry.cmd match {
+  implicit def logEntryTothrift(entry: LogEntry): Entry = entry.cmd match {
     case Left(cmd) =>
       Entry(entry.term, entry.index, EntryType.Command, Some(cmd))
     case Right(config) =>
       Entry(entry.term, entry.index, EntryType.Configuration, configuration = Some(config))
   }
+
+  implicit def entriesToThrift(entires: Seq[LogEntry]): Seq[Entry] = entires.map(logEntryTothrift)
 }

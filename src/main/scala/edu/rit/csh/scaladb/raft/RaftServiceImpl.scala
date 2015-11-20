@@ -39,6 +39,7 @@ class RaftServiceImpl[K, V](serverState: RaftServer[K, V]) extends RaftService.F
 
   def append(entries: AppendEntries): Future[AppendResponse] = Future {
     logger.debug("received AppendEntries RPC")
+    logger.debug(serverState.toString)
     /*val currentTerm = serverState.getCurrentTerm
     val commitIndex = serverState.getCommitIndex
     serverState.setHeartbeat(entries.term)

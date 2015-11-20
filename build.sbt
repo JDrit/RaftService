@@ -18,9 +18,10 @@ lazy val commonSettings = Seq(
   )
 )
 
-lazy val root = (project in file("."))
+lazy val root = Project("main", file("."))
   .settings(commonSettings: _*)
-  .settings(name := "ScalaDB",
+  .settings(
+    name := "ScalaDB",
     assemblySettings,
     jarName in assembly := "scalaDB.jar",
     scroogeThriftSourceFolder in Compile <<= baseDirectory {

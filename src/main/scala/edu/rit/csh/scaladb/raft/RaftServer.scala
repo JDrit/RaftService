@@ -1,6 +1,5 @@
 package edu.rit.csh.scaladb.raft
 
-import java.nio.ByteBuffer
 import java.util.concurrent.LinkedBlockingQueue
 
 import com.twitter.conversions.time._
@@ -40,49 +39,6 @@ import scala.util.Random
 //
 class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) extends LazyLogging {
 
-  val timeoutThread = new Thread(new Runnable {
-    override def run(): Unit = {
-      while (status.get() != ServerType.Leader) {
-        val sleep = electionTimeout()
-        Thread.sleep(sleep.inMilliseconds)
-        // If a follower receives no communication over a period of time
-        // called the election timeout, then it assumes there is no viable
-        // leader and begins an election to choose a new leader
-        if (getLastHeartbeat() > sleep) {
-          startElection()
-        }
-      }
-    }
-  })
-  timeoutThread.start()
-
-  val heartbeatThread = new Thread(new Runnable {
-    override def run(): Unit = {
-      while (status.get() == ServerType.Leader) {
-        val sleep = 100.milliseconds
-        Thread.sleep(sleep.inMilliseconds)
-        val lst = Seq.empty[LogEntry]
-        entiresToSend.drainTo(lst)
-        logger.debug(s"sending append RPC with ${lst.size} entries")
-        val (prevLogIndex, prevLogTerm)  = lst match {
-          case x :: xs => (lst.get(x.index - 1).index, lst.get(x.index - 1).term)
-          case Nil => (0, 0)
-        }
-        val append = AppendEntries(
-          term = getCurrentTerm,
-          leaderId = self.id,
-          prevLogIndex = prevLogIndex,
-          prevLogTerm = prevLogTerm,
-          entires = lst.map(logEntryTotThrift),
-          leaderCommit = commitIndex.get)
-        peers.map { peer =>
-          appendClient(peer.address)
-        }
-
-      }
-    }
-  })
-
   // When servers start up, they begin as followers. A server remains in follower state
   // as long as it receives valid RPCs from a leader or candidate
   private val status = new AtomicReference(ServerType.Follower)
@@ -119,6 +75,37 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
   private val electionFuture = new AtomicReference[Option[Future[Seq[VoteResponse]]]](None)
 
   private val entiresToSend = new LinkedBlockingQueue[LogEntry]()
+
+  val timeoutThread = new Thread(new Runnable {
+    override def run(): Unit = {
+      while (status.get() != ServerType.Leader) {
+        val sleep = electionTimeout()
+        Thread.sleep(sleep.inMilliseconds)
+        // If a follower receives no communication over a period of time
+        // called the election timeout, then it assumes there is no viable
+        // leader and begins an election to choose a new leader
+        if (getLastHeartbeat() > sleep) {
+          startElection()
+        }
+      }
+    }
+  })
+  timeoutThread.start()
+
+  val heartbeatThread = new Thread(new Runnable {
+    override def run(): Unit = {
+      while (status.get() == ServerType.Leader) {
+        val sleep = 100.milliseconds * 10
+        Thread.sleep(sleep.inMilliseconds)
+        val (prevLogIndex, prevLogTerm) = log.lastOption
+          .map(entry => (entry.index, entry.term))
+          .getOrElse((0, 0))
+        val append = AppendEntries(getCurrentTerm, self.id, prevLogIndex,
+          prevLogTerm, Seq.empty, commitIndex.get)
+        peers.map(peer => appendClient(peer.address)(append))
+      }
+    }
+  })
 
   def getCurrentTerm: Int = currentTerm.get
 
@@ -237,9 +224,6 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
     // and transitions to candidate state
     status.set(ServerType.Candidate)
 
-    // It then votes for itself
-    votedFor.set(Some(self.id))
-
     val index = commitIndex.get()
     val requestVote = RequestVote(term, self.id, index, term)
 
@@ -267,10 +251,9 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
         // Once a candidate wins an election, it becomes leader.
         status.set(ServerType.Leader)
 
-        val (lastIndex, lastTerm) = log.lastOption match {
-          case Some(logEntry) => (logEntry.index, logEntry.term)
-          case None => (0, 0)
-        }
+        val (lastIndex, lastTerm) = log.lastOption
+            .map(entry => (entry.index, entry.term))
+            .getOrElse((0, 0))
 
         // It then sends heartbeat messages to all of the other servers to establish its
         // authority and to prevent new elections.
@@ -284,18 +267,22 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
         // When a leader first comes to power, it initializes all nextIndex values to the index
         // just after the last one in its log
         peers.foreach(peer => peer.nextIndex = lastIndex + 1)
-
+        heartbeatThread.start()
+        clearVotedFor
       } else { // If election timeout elapses: start new election
         logger.debug("did not receive enough votes to become leader, restarting election...")
+        clearVotedFor
         startElection()
       }
     } catch {
       case ex: TimeoutException =>
         electionFuture.set(None)
         logger.debug("timeout exception during election process, restarting election processes")
+        clearVotedFor
         startElection()
       case ex: FutureCancelledException =>
         electionFuture.set(None)
+        clearVotedFor
         logger.debug("election process cancelled by other leader")
     }
   }
