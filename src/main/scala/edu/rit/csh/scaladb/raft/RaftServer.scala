@@ -1,6 +1,8 @@
 package edu.rit.csh.scaladb.raft
 
+import java.net.InetSocketAddress
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.function.IntUnaryOperator
 
 import com.twitter.conversions.time._
 import com.twitter.finagle.Thrift
@@ -16,6 +18,7 @@ import java.util.concurrent.atomic.{AtomicInteger, AtomicReference, AtomicLong}
 
 import edu.rit.csh.scaladb.raft.storage.Storage
 import edu.rit.csh.scaladb.raft.RaftConfiguration._
+import edu.rit.csh.scaladb.raft.Scala2Java8._
 
 import scala.collection.JavaConversions._
 import scala.util.Random
@@ -67,7 +70,7 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
   // the last time the server has received a message from the server
   private val lastHeartbeat = new AtomicLong(0)
 
-  // the ID of the current leader
+  // the ID of the current leader, so followers can redirect clients
   private val leaderId = new AtomicReference[Option[Int]](None)
 
   // reference to the futures that are sending the vote requests to the other servers.
@@ -95,19 +98,23 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
   val heartbeatThread = new Thread(new Runnable {
     override def run(): Unit = {
       while (status.get() == ServerType.Leader) {
-        val sleep = 100.milliseconds * 10
-        Thread.sleep(sleep.inMilliseconds)
         val (prevLogIndex, prevLogTerm) = log.lastOption
           .map(entry => (entry.index, entry.term))
           .getOrElse((0, 0))
         val append = AppendEntries(getCurrentTerm, self.id, prevLogIndex,
           prevLogTerm, Seq.empty, commitIndex.get)
         peers.map(peer => appendClient(peer.address)(append))
+
+        val sleep = 100.milliseconds * 10
+        Thread.sleep(sleep.inMilliseconds)
       }
     }
   })
 
   def getCurrentTerm: Int = currentTerm.get
+
+  def getCurrentTerm(term: Int): Int = currentTerm
+    .updateAndGet((value: Int) => if (value < term) term else value)
 
   def incrementTerm(): Int = currentTerm.incrementAndGet
 
@@ -122,6 +129,10 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
   def getCommitIndex: Int = commitIndex.get
 
   def toFollower(): Unit = status.set(ServerType.Follower)
+
+  def setLeaderId(id: Int): Unit = leaderId.set(Some(id))
+
+  def clearLeaderId(): Unit = leaderId.set(None)
 
   /**
    * Increments the commit index.
@@ -177,9 +188,7 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
   private def electionTimeout(): Duration = {
     val min = 150
     val max = 300
-    val time = (min + Random.nextInt(max - min + 1)).milliseconds * 10
-    logger.debug(s"election timeout: $time")
-    time
+    (min + Random.nextInt(max - min + 1)).milliseconds * 10
   }
 
   /**
@@ -207,11 +216,11 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
     retry andThen timeout andThen maskCancel andThen fun
   }
 
-  private def voteClient(address: String): RequestVote => Future[VoteResponse] =
-    createClient(Thrift.newIface[RaftService.FutureIface](address).vote)
+  private def voteClient(address: InetSocketAddress): RequestVote => Future[VoteResponse] =
+    createClient(Thrift.newIface[RaftService.FutureIface](address.getHostName + ":" + address.getPort).vote)
 
-  private def appendClient(address: String): AppendEntries => Future[AppendResponse] =
-    createClient(Thrift.newIface[RaftService.FutureIface](address).append)
+  private def appendClient(address: InetSocketAddress): AppendEntries => Future[AppendResponse] =
+    createClient(Thrift.newIface[RaftService.FutureIface](address.getHostName + ":" + address.getPort).append)
 
   /**
    * Starts the election process (5.2)
@@ -223,6 +232,8 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
     val term = incrementTerm()
     // and transitions to candidate state
     status.set(ServerType.Candidate)
+
+    clearLeaderId()
 
     val index = commitIndex.get()
     val requestVote = RequestVote(term, self.id, index, term)
@@ -247,13 +258,16 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
       // A candidate wins an election if it receives votes from a majority of the
       // servers in the full cluster for the same term
       if (votesYes > peers.length / 2) {
-        logger.debug("received enough votes to become leader")
         // Once a candidate wins an election, it becomes leader.
         status.set(ServerType.Leader)
+        setLeaderId(self.id)
 
         val (lastIndex, lastTerm) = log.lastOption
-            .map(entry => (entry.index, entry.term))
-            .getOrElse((0, 0))
+          .map(entry => (entry.index, entry.term))
+          .getOrElse((0, 0))
+
+        logger.debug("received enough votes to become leader")
+        logger.debug(this.toString())
 
         // It then sends heartbeat messages to all of the other servers to establish its
         // authority and to prevent new elections.
@@ -269,17 +283,17 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
         peers.foreach(peer => peer.nextIndex = lastIndex + 1)
         heartbeatThread.start()
         clearVotedFor
+        electionFuture.set(None)
       } else { // If election timeout elapses: start new election
+        electionFuture.set(None)
         logger.debug("did not receive enough votes to become leader, restarting election...")
         clearVotedFor
-        startElection()
       }
     } catch {
       case ex: TimeoutException =>
         electionFuture.set(None)
         logger.debug("timeout exception during election process, restarting election processes")
         clearVotedFor
-        startElection()
       case ex: FutureCancelledException =>
         electionFuture.set(None)
         clearVotedFor
@@ -293,8 +307,7 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
        |  current term: ${currentTerm.get()}
        |  state: ${status.get()}
        |  commit index: ${commitIndex.get()}
-       |  leader id:
-       |  voted for: ${votedFor.get()}
-       |}
-     """.stripMargin
+       |  leader id:  ${leaderId.get().getOrElse("<no one>")}
+       |  voted for: ${votedFor.get().getOrElse("<no one>")}
+       |}""".stripMargin
 }

@@ -1,6 +1,8 @@
 package edu.rit.csh.scaladb.raft
 
 
+import java.net.InetSocketAddress
+
 import edu.rit.csh.scaladb.raft.State.State
 
 object ServerType extends Enumeration {
@@ -22,17 +24,16 @@ object State extends Enumeration {
  * @param matchIndex index of highest log entry known to be replicated on server
  *                   (initialized to 0, increases monotonically)
  */
-case class Peer(id: Int, address: String, var nextIndex: Int, var matchIndex: Int) {
+case class Peer(id: Int, address: InetSocketAddress, var nextIndex: Int, var matchIndex: Int) {
 
   override def toString: String =
     s"""
        |peer {
        |  server id: $id
-       |  address: $address
+       |  address: ${address.toString}
        |  nextIndex: $nextIndex
        |  matchIndex: $matchIndex
-       |}
-     """.stripMargin
+       |}""".stripMargin
 }
 
 /**
@@ -50,8 +51,7 @@ case class RaftConfiguration(state: State, cOldPeers: Array[Peer], cNewPeers: Ar
        |  state: $state
        |  old peers: [${cOldPeers.mkString(", ")}]
        |  new peers: [${cNewPeers.mkString(", ")}]
-       |}
-     """.stripMargin
+       |}""".stripMargin
 }
 
 case class LogEntry(term: Int, index: Int, cmd: Either[String, RaftConfiguration]) {
@@ -62,13 +62,12 @@ case class LogEntry(term: Int, index: Int, cmd: Either[String, RaftConfiguration
        |  term: $term
        |  index: $index,
        |  cmd: $cmd
-       |}
-     """.stripMargin
+       |}""".stripMargin
 }
 
 object RaftConfiguration {
 
-  implicit def PeerToThrift(peer: Peer): Server = Server(peer.id, peer.address)
+  implicit def PeerToThrift(peer: Peer): Server = Server(peer.id, peer.address.getAddress.getHostAddress)
 
   implicit def RaftConfigToThrift(config: RaftConfiguration): Configuration = ???
 

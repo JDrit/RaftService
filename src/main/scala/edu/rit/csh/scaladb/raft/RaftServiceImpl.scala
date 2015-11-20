@@ -19,8 +19,8 @@ class RaftServiceImpl[K, V](serverState: RaftServer[K, V]) extends RaftService.F
       serverState.toFollower()
     }
 
-
     if (requestVote.term < currentTerm) {
+      logger.debug(s"vote failed for $requestVote")
       VoteResponse(term = currentTerm, voteGranted = false)
     } else {
       val votedFor = serverState.getVotedFor
@@ -30,19 +30,21 @@ class RaftServiceImpl[K, V](serverState: RaftServer[K, V]) extends RaftService.F
       // given term, on a first-come-first-served basis
       if ((votedFor.contains(requestVote.candidateId) || votedFor.isEmpty) && requestVote.lastLogIndex >= commitIndex) {
         serverState.setVotedFor(requestVote.candidateId) // updates the current voted for
+        logger.debug(s"vote granted for $requestVote")
         VoteResponse(term = currentTerm, voteGranted = true)
       } else {
+        logger.debug(s"vote failed for $requestVote")
         VoteResponse(term = currentTerm, voteGranted = false)
       }
     }
   }
 
   def append(entries: AppendEntries): Future[AppendResponse] = Future {
-    logger.debug("received AppendEntries RPC")
-    logger.debug(serverState.toString)
-    /*val currentTerm = serverState.getCurrentTerm
+    logger.debug(s"received AppendEntries RPC: $entries")
+    val currentTerm = serverState.getCurrentTerm(entries.term)
     val commitIndex = serverState.getCommitIndex
     serverState.setHeartbeat(entries.term)
+    logger.debug(serverState.toString())
 
     // Reply false if term < currentTerm
     if (entries.term < currentTerm) {
@@ -53,11 +55,13 @@ class RaftServiceImpl[K, V](serverState: RaftServer[K, V]) extends RaftService.F
         case Some(entry) => if (entry.term != entries.prevLogTerm) {
           AppendResponse(term = currentTerm, success = false)
         } else {
+          serverState.setLeaderId(entries.leaderId)
           AppendResponse(term = currentTerm, success = true)
         }
         case None =>AppendResponse(term = currentTerm, success = false)
       }
-    }*/
+    }
+    serverState.setLeaderId(entries.leaderId)
     AppendResponse(serverState.getCurrentTerm, true)
   }
 }
