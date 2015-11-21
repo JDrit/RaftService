@@ -1,5 +1,4 @@
-package edu.rit.csh.scaladb.raft
-
+package edu.rit.csh.scaladb.raft.server
 
 import java.net.InetSocketAddress
 
@@ -10,7 +9,7 @@ import com.twitter.finagle.service.{TimeoutFilter, RetryPolicy, RetryExceptionsF
 import com.twitter.finagle.util.DefaultTimer
 import com.twitter.util.Future
 
-import edu.rit.csh.scaladb.raft.State.State
+import State.State
 
 object ServerType extends Enumeration {
   type ServerType = Value
@@ -65,7 +64,7 @@ case class Peer(id: Int, address: InetSocketAddress, var nextIndex: Int, var mat
 
 /**
  * configuration represents the sets of peers and behaviors required to
- * mplement joint-consensus.
+ * implement joint-consensus.
  * @param state determines if it is the new or old configuration
  * @param cOldPeers the list of old servers
  * @param cNewPeers the list of new servers

@@ -1,4 +1,4 @@
-package edu.rit.csh.scaladb.raft
+package edu.rit.csh.scaladb.raft.server
 
 import java.net.InetSocketAddress
 

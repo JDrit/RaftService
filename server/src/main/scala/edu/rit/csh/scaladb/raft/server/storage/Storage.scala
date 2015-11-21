@@ -1,4 +1,4 @@
-package edu.rit.csh.scaladb.raft.storage
+package edu.rit.csh.scaladb.raft.server.storage
 
 /**
  * Abstract class for the storage system for Raft. Currently this works as a Key-Value

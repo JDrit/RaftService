@@ -1,24 +1,17 @@
-package edu.rit.csh.scaladb.raft
+package edu.rit.csh.scaladb.raft.server
 
-import java.net.InetSocketAddress
 import java.util.concurrent.LinkedBlockingQueue
-import java.util.function.IntUnaryOperator
 
 import com.twitter.conversions.time._
-import com.twitter.finagle.Thrift
-import com.twitter.finagle.filter.MaskCancelFilter
-import com.twitter.finagle.service.{TimeoutFilter, RetryExceptionsFilter, RetryPolicy}
-import com.twitter.finagle.util.DefaultTimer
 import com.twitter.util._
 import com.typesafe.scalalogging.LazyLogging
 
 import java.util
 import java.util.Collections
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference, AtomicLong}
-
-import edu.rit.csh.scaladb.raft.storage.Storage
-import edu.rit.csh.scaladb.raft.RaftConfiguration._
-import edu.rit.csh.scaladb.raft.Scala2Java8._
+import RaftConfiguration._
+import Scala2Java8._
+import edu.rit.csh.scaladb.raft.server.storage.Storage
 
 import scala.collection.JavaConversions._
 import scala.util.Random
@@ -38,7 +31,6 @@ import scala.util.Random
 //     |                                                                  |
 //     |                               discovers server with higher term  |
 //     '------------------------------------------------------------------'
-//
 //
 class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) extends LazyLogging {
 
@@ -216,7 +208,7 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
   }
 
   /**
-   * Starts the election process (5.2)
+   * Starts the election process (5.2).
    */
   private def startElection(): Unit = {
     logger.info("starting election process")

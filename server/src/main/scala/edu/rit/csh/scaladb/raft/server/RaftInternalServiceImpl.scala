@@ -1,11 +1,11 @@
-package edu.rit.csh.scaladb.raft
+package edu.rit.csh.scaladb.raft.server
 
 import com.twitter.util.Future
 import com.typesafe.scalalogging.LazyLogging
 
-import edu.rit.csh.scaladb.raft.RaftConfiguration._
+import RaftConfiguration._
 
-class RaftServiceImpl[K, V](serverState: RaftServer[K, V]) extends RaftService.FutureIface with LazyLogging {
+class RaftInternalServiceImpl[K, V](serverState: RaftServer[K, V]) extends RaftService.FutureIface with LazyLogging {
 
   /**
    * Invoked by candidates to gather votes

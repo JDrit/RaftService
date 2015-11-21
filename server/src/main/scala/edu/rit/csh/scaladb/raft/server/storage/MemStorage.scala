@@ -1,5 +1,4 @@
-package edu.rit.csh.scaladb.raft.storage
-
+package edu.rit.csh.scaladb.raft.server.storage
 
 class MemStorage extends Storage[String, String] {
 
