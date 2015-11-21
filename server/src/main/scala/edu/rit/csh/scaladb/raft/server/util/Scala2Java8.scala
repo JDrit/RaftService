@@ -1,6 +1,7 @@
-package edu.rit.csh.scaladb.raft.server
+package edu.rit.csh.scaladb.raft.server.util
 
 import java.util.function._
+
 import scala.language.implicitConversions
 
 trait Scala2Java8{

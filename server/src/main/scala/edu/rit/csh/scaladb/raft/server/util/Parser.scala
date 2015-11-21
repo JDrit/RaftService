@@ -1,8 +1,9 @@
-package edu.rit.csh.scaladb.raft.server
+package edu.rit.csh.scaladb.raft.server.util
 
 import java.net.InetSocketAddress
 
 import com.typesafe.scalalogging.LazyLogging
+import edu.rit.csh.scaladb.raft.server.Peer
 
 import scala.annotation.tailrec
 import scala.reflect.ClassTag

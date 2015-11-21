@@ -7,7 +7,7 @@ import com.twitter.finagle.thrift.ThriftServerFramedCodec
 import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.server.RaftService.{FinagledService => InternalService}
 import edu.rit.csh.scaladb.raft.client.ClientOperations.{FinagledService => ClientService}
-import edu.rit.csh.scaladb.raft.server.storage.MemStorage
+import edu.rit.csh.scaladb.raft.server.util.ParserUtils
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
 
 import ParserUtils._
@@ -21,15 +21,17 @@ object RaftMain extends LazyLogging {
       val config = parse[Peer](pArgs("self"))
       val otherServers = parse[Array[Peer]](pArgs("peers"))
       val client = parse[InetSocketAddress](pArgs("client"))
-      val storage = new MemStorage()
 
       logger.info(s"self configuration: $config")
       logger.info(s"other configurations: ${otherServers.mkString("")}")
 
-      val internalService = new InternalService(
-        new RaftInternalServiceImpl(new RaftServer(config, Array(config) ++ otherServers, storage)),
-        new Factory())
-      val clientService = new ClientService( new RaftClientService(), new Factory())
+      val stateMachine = new MemoryStateMachine()
+      val servers = Array(config) ++ otherServers
+      val raftServer = new RaftServer[Operation, OpResult](config, servers, stateMachine)
+      val internalImpl = new RaftInternalServiceImpl(raftServer)
+      val internalService = new InternalService(internalImpl, new Factory())
+      val clientImpl = new RaftClientServiceImpl[Operation, OpResult](raftServer)
+      val clientService = new ClientService(clientImpl, new Factory())
 
       ServerBuilder()
         .bindTo(config.address)

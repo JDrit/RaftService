@@ -6,12 +6,10 @@ import com.twitter.conversions.time._
 import com.twitter.util._
 import com.typesafe.scalalogging.LazyLogging
 
-import java.util
 import java.util.Collections
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference, AtomicLong}
-import RaftConfiguration._
+import edu.rit.csh.scaladb.raft.server.util.Scala2Java8
 import Scala2Java8._
-import edu.rit.csh.scaladb.raft.server.storage.Storage
 
 import scala.collection.JavaConversions._
 import scala.util.Random
@@ -32,7 +30,21 @@ import scala.util.Random
 //     |                               discovers server with higher term  |
 //     '------------------------------------------------------------------'
 //
-class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) extends LazyLogging {
+
+case class NotLeaderException() extends Exception("Not leader")
+
+/**
+ * The actual state of the raft consensus algorithm. This holds all the information and executes
+ * commands. The raft server should not care about the type of messages being sent, just
+ * relay them to the state machine.
+ * @param self the peer that stores the information about this given server
+ * @param peers the list of all peers in the system, including itself
+ * @param stateMachine the state machine that is used to execute commands.
+ * @tparam C the type of the command being sent
+ * @tparam R the type of the result being sent
+ */
+class RaftServer[C <: Command, R <: Result](self: Peer, peers: Array[Peer],
+                                            stateMachine: StateMachine[C, R]) extends LazyLogging {
 
   // When servers start up, they begin as followers. A server remains in follower state
   // as long as it receives valid RPCs from a leader or candidate
@@ -48,7 +60,7 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
   private val votedFor = new AtomicReference[Option[Int]](None)
   // log entries; each entry contains command for state machine, and term when entry
   // as received by leader (first index is 1)
-  private val log = Collections.synchronizedList(new util.ArrayList[LogEntry]())
+  private val log = Collections.synchronizedList(new java.util.ArrayList[LogEntry]())
 
   //
   // volatile state on all servers
@@ -112,6 +124,10 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
 
   def getCurrentTerm(): Int = currentTerm.get
 
+  /**
+   * Updates the current term if the given value is larger than the current value.
+   * The updated value is returned
+   */
   def getCurrentTerm(term: Int): Int = currentTerm
     .updateAndGet((value: Int) => if (value < term) term else value)
 
@@ -197,6 +213,10 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
   private def applyLog(log: LogEntry): Unit = {
     // TODO actually finish this
     logger.info(s"applying log $log")
+    log.cmd match {
+      case Left(cmd) => stateMachine.applyLog(stateMachine.deserializeCommand(cmd))
+      case Right(config) => logger.info("config change")
+    }
   }
 
   /**
@@ -205,6 +225,24 @@ class RaftServer[K, V](self: Peer, peers: Array[Peer], storage: Storage[K, V]) e
   def appendLog(entries: Seq[LogEntry]): Unit = { // TODO will break when inserting new ones
     entries.foreach { entry => log.set(entry.index, entry) }
     logger.debug(s"appending ${entries.length} entries to the log")
+  }
+
+
+  /**
+   * Log replication (5.3)
+   * @param command the command to run through the system
+   * @throws NotLeaderException if this node is not the current leader
+   * @return the result of the successful completion of the command
+   */
+  @throws[NotLeaderException]
+  def submitCommand(command: C): R = {
+    if (!getLeaderId().contains(self.id)) {
+      throw new NotLeaderException()
+    } else {
+      val index = log.lastOption.map(_.index).getOrElse(0)
+      val logEntry = LogEntry(currentTerm.get, index, Left(stateMachine.serializeCommand(command)))
+      appendLog(Seq(logEntry))
+    }
   }
 
   /**

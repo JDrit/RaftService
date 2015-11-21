@@ -4,7 +4,15 @@ import com.twitter.util.Future
 import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.client._
 
-class RaftClientService extends ClientOperations.FutureIface with LazyLogging {
+/**
+ * The service that the client connects to. This then forwards requests to the raft server, which
+ * updates the state machine
+ * @param raftServer the raft server to send requests to
+ * @tparam C the type of commands to send
+ * @tparam R the type of results of the commands
+ */
+class RaftClientServiceImpl[C <: Command, R <: Result](raftServer: RaftServer[C, R])
+  extends ClientOperations.FutureIface with LazyLogging {
 
   def get(get: GetRequest): Future[GetResponse] = Future {
     println(s"received Get RPC: $get")

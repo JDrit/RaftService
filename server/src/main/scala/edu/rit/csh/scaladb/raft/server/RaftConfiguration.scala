@@ -79,6 +79,26 @@ case class RaftConfiguration(state: State, cOldPeers: Array[Peer], cNewPeers: Ar
        |}""".stripMargin
 }
 
+/**
+ * Base class for commands send to the client. The State machine being used has to extend this.
+ * The state machine will get called with every new command
+ * @param id each command needs to have an unique ID so that the server can make sure
+ *           that the same command will not be executed twice
+ */
+abstract class Command(id: String)
+
+/**
+ * Base class for the results of commands that have been sent to the server.
+ * @param id the ID of the command that this is a result to
+ */
+abstract class Result(id: String)
+
+/**
+ * Entry in the Raft server's log
+ * @param term the term that this entry was added
+ * @param index the global index in the log of this entry
+ * @param cmd the command or configuration change of this server
+ */
 case class LogEntry(term: Int, index: Int, cmd: Either[String, RaftConfiguration]) {
 
   override def toString: String =
@@ -87,30 +107,4 @@ case class LogEntry(term: Int, index: Int, cmd: Either[String, RaftConfiguration
        |  index: $index,
        |  cmd: $cmd
        |}""".stripMargin
-}
-
-object RaftConfiguration {
-
-  implicit def PeerToThrift(peer: Peer): Server = Server(peer.id, peer.address.getAddress.getHostAddress)
-
-  implicit def RaftConfigToThrift(config: RaftConfiguration): Configuration = ???
-
-  implicit def logEntryTothrift(entry: LogEntry): Entry = entry.cmd match {
-    case Left(cmd) =>
-      Entry(entry.term, entry.index, EntryType.Command, command = Some(cmd))
-    case Right(config) =>
-      Entry(entry.term, entry.index, EntryType.Configuration, configuration = Some(config))
-  }
-
-  implicit def thriftToLogEntry(entry: Entry): LogEntry = (entry.command, entry.configuration) match {
-    case (Some(cmd), None) => LogEntry(entry.term, entry.index, Left(cmd))
-    case (None, Some(config)) => LogEntry(entry.term, entry.index, Right(config))
-    case _ => throw new RuntimeException(s"could not parse Entry to LogEntry $entry")
-  }
-
-  implicit def thriftToLogEntries(entries: Seq[Entry]): Seq[LogEntry] = entries.map(thriftToLogEntry)
-
-  implicit def thriftToRaftConfig(config: Configuration): RaftConfiguration = ???
-
-  implicit def entriesToThrift(entires: Seq[LogEntry]): Seq[Entry] = entires.map(logEntryTothrift)
 }
