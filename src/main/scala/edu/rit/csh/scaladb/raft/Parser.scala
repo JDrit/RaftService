@@ -21,15 +21,15 @@ object ParserUtils extends LazyLogging {
 
   def parse[T](str: String)(implicit parser: Parser[T]): T = parser(str)
 
-  implicit def strParser = new Parser[String] {
+  implicit val strParser = new Parser[String] {
     def apply(str: String) = str
   }
 
-  implicit def intParser = new Parser[Int] {
+  implicit val intParser = new Parser[Int] {
     def apply(str: String) = str.toInt
   }
 
-  implicit def doubleParser = new Parser[Double] {
+  implicit val doubleParser = new Parser[Double] {
     def apply(str: String) = str.toDouble
   }
 

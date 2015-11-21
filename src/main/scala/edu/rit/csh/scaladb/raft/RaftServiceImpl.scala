@@ -3,6 +3,8 @@ package edu.rit.csh.scaladb.raft
 import com.twitter.util.Future
 import com.typesafe.scalalogging.LazyLogging
 
+import edu.rit.csh.scaladb.raft.RaftConfiguration._
+
 class RaftServiceImpl[K, V](serverState: RaftServer[K, V]) extends RaftService.FutureIface with LazyLogging {
 
   /**
@@ -44,24 +46,24 @@ class RaftServiceImpl[K, V](serverState: RaftServer[K, V]) extends RaftService.F
     val currentTerm = serverState.getCurrentTerm(entries.term)
     val commitIndex = serverState.getCommitIndex
     serverState.setHeartbeat(entries.term)
+    serverState.setLeaderId(entries.leaderId)
     logger.debug(serverState.toString())
 
     // Reply false if term < currentTerm
     if (entries.term < currentTerm) {
       AppendResponse(term = currentTerm, success = false)
     } else {
-      // Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
       serverState.getLogEntry(entries.prevLogIndex) match {
-        case Some(entry) => if (entry.term != entries.prevLogTerm) {
-          AppendResponse(term = currentTerm, success = false)
-        } else {
-          serverState.setLeaderId(entries.leaderId)
+        case Some(entry) if entry.term == entries.prevLogTerm =>
+          serverState.appendLog(entries.entires)
           AppendResponse(term = currentTerm, success = true)
-        }
-        case None =>AppendResponse(term = currentTerm, success = false)
+        case None =>
+          serverState.appendLog(entries.entires)
+          AppendResponse(term = currentTerm, success = true)
+        // Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
+        case _ =>
+          AppendResponse(term = currentTerm, success = false)
       }
     }
-    serverState.setLeaderId(entries.leaderId)
-    AppendResponse(serverState.getCurrentTerm, true)
   }
 }

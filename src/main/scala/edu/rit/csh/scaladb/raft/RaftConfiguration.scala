@@ -3,6 +3,13 @@ package edu.rit.csh.scaladb.raft
 
 import java.net.InetSocketAddress
 
+import com.twitter.conversions.time._
+import com.twitter.finagle.Thrift
+import com.twitter.finagle.filter.MaskCancelFilter
+import com.twitter.finagle.service.{TimeoutFilter, RetryPolicy, RetryExceptionsFilter}
+import com.twitter.finagle.util.DefaultTimer
+import com.twitter.util.Future
+
 import edu.rit.csh.scaladb.raft.State.State
 
 object ServerType extends Enumeration {
@@ -26,9 +33,29 @@ object State extends Enumeration {
  */
 case class Peer(id: Int, address: InetSocketAddress, var nextIndex: Int, var matchIndex: Int) {
 
+  /**
+   * Creates the standard client connection that is used to communicate to other Raft servers
+   * @param fun the function that creates the request, which generates a Future for the response
+   *            from the remote server
+   * @tparam I the type of the request
+   * @tparam O the type of the remote server's response
+   * @return the function that sends the request to the server, returning a Future response
+   */
+  private def createClient[I, O](fun: I => Future[O]): I => Future[O] = {
+    val retry = new RetryExceptionsFilter[I, O](RetryPolicy.tries(3), DefaultTimer.twitter)
+    val timeout = new TimeoutFilter[I, O](3.seconds, DefaultTimer.twitter)
+    val maskCancel = new MaskCancelFilter[I, O]()
+    retry andThen timeout andThen maskCancel andThen fun
+  }
+
+  val voteClient: RequestVote => Future[VoteResponse] = createClient(
+    Thrift.newIface[RaftService.FutureIface](address.getHostName + ":" + address.getPort).vote)
+
+  val appendClient: AppendEntries => Future[AppendResponse] = createClient(
+    Thrift.newIface[RaftService.FutureIface](address.getHostName + ":" + address.getPort).append)
+
   override def toString: String =
-    s"""
-       |peer {
+    s"""peer {
        |  server id: $id
        |  address: ${address.toString}
        |  nextIndex: $nextIndex
@@ -46,8 +73,7 @@ case class Peer(id: Int, address: InetSocketAddress, var nextIndex: Int, var mat
 case class RaftConfiguration(state: State, cOldPeers: Array[Peer], cNewPeers: Array[Peer]) {
 
   override def toString: String =
-    s"""
-       |configuration {
+    s"""configuration {
        |  state: $state
        |  old peers: [${cOldPeers.mkString(", ")}]
        |  new peers: [${cNewPeers.mkString(", ")}]
@@ -57,8 +83,7 @@ case class RaftConfiguration(state: State, cOldPeers: Array[Peer], cNewPeers: Ar
 case class LogEntry(term: Int, index: Int, cmd: Either[String, RaftConfiguration]) {
 
   override def toString: String =
-    s"""
-       |entry {
+    s"""entry {
        |  term: $term
        |  index: $index,
        |  cmd: $cmd
@@ -73,10 +98,20 @@ object RaftConfiguration {
 
   implicit def logEntryTothrift(entry: LogEntry): Entry = entry.cmd match {
     case Left(cmd) =>
-      Entry(entry.term, entry.index, EntryType.Command, Some(cmd))
+      Entry(entry.term, entry.index, EntryType.Command, command = Some(cmd))
     case Right(config) =>
       Entry(entry.term, entry.index, EntryType.Configuration, configuration = Some(config))
   }
+
+  implicit def thriftToLogEntry(entry: Entry): LogEntry = (entry.command, entry.configuration) match {
+    case (Some(cmd), None) => LogEntry(entry.term, entry.index, Left(cmd))
+    case (None, Some(config)) => LogEntry(entry.term, entry.index, Right(config))
+    case _ => throw new RuntimeException(s"could not parse Entry to LogEntry $entry")
+  }
+
+  implicit def thriftToLogEntries(entries: Seq[Entry]): Seq[LogEntry] = entries.map(thriftToLogEntry)
+
+  implicit def thriftToRaftConfig(config: Configuration): RaftConfiguration = ???
 
   implicit def entriesToThrift(entires: Seq[LogEntry]): Seq[Entry] = entires.map(logEntryTothrift)
 }
