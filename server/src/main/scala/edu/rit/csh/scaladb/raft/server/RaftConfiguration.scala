@@ -24,13 +24,13 @@ object State extends Enumeration {
 /**
  * Server configuration for all members of the cluster
  * @param id the unique ID of the server
- * @param address the address to send requests to
+ * @param inetAddress the address to send requests to
  * @param nextIndex index of the next log entry to send to that server
  *                  (initialized to leader last log index + 1)
  * @param matchIndex index of highest log entry known to be replicated on server
  *                   (initialized to 0, increases monotonically)
  */
-case class Peer(id: Int, address: InetSocketAddress, var nextIndex: Int, var matchIndex: Int) {
+case class Peer(id: Int, inetAddress: InetSocketAddress, var nextIndex: Int, var matchIndex: Int) {
 
   /**
    * Creates the standard client connection that is used to communicate to other Raft servers
@@ -47,11 +47,13 @@ case class Peer(id: Int, address: InetSocketAddress, var nextIndex: Int, var mat
     retry andThen timeout andThen maskCancel andThen fun
   }
 
+  val address = inetAddress.getHostName + ":" + inetAddress.getPort
+
   val voteClient: RequestVote => Future[VoteResponse] = createClient(
-    Thrift.newIface[RaftService.FutureIface](address.getHostName + ":" + address.getPort).vote)
+    Thrift.newIface[RaftService.FutureIface](address).vote)
 
   val appendClient: AppendEntries => Future[AppendResponse] = createClient(
-    Thrift.newIface[RaftService.FutureIface](address.getHostName + ":" + address.getPort).append)
+    Thrift.newIface[RaftService.FutureIface](address).append)
 
   override def toString: String =
     s"""peer {
@@ -85,13 +87,25 @@ case class RaftConfiguration(state: State, cOldPeers: Array[Peer], cNewPeers: Ar
  * @param id each command needs to have an unique ID so that the server can make sure
  *           that the same command will not be executed twice
  */
-abstract class Command(id: String)
+abstract class Command(id: Int)
 
 /**
  * Base class for the results of commands that have been sent to the server.
  * @param id the ID of the command that this is a result to
  */
-abstract class Result(id: String)
+abstract class Result(id: Int)
+
+/**
+ * This is the serializer / deserializer that is used to format the commands to send to the
+ * state machine
+ * @tparam C the type of the command to work on
+ */
+trait MessageSerializer[C <: Command] {
+
+  def serialize(command: C): String
+
+  def deserialize(str: String): C
+}
 
 /**
  * Entry in the Raft server's log
@@ -107,4 +121,21 @@ case class LogEntry(term: Int, index: Int, cmd: Either[String, RaftConfiguration
        |  index: $index,
        |  cmd: $cmd
        |}""".stripMargin
+}
+
+object MessageConverters {
+  def thriftToRaftConfig(config: Configuration): RaftConfiguration = ???
+
+  def raftConfigToThrift(config: RaftConfiguration):  Configuration = ???
+
+  def thriftToLogEntry(entry: Entry): LogEntry = (entry.command, entry.configuration) match {
+    case (Some(cmd), None) => LogEntry(entry.term, entry.index, Left(cmd))
+    case (None, Some(config)) => LogEntry(entry.term, entry.index, Right(thriftToRaftConfig(config)))
+    case _ => throw new RuntimeException(s"could not parse Entry to LogEntry $entry")
+  }
+
+  def logEntryToThrift(logEntry: LogEntry): Entry = logEntry.cmd match {
+    case Left(cmd) => Entry(logEntry.term, logEntry.index, EntryType.Command, Some(cmd), None)
+    case Right(config) => Entry(logEntry.term, logEntry.index, EntryType.Configuration, None, Some(raftConfigToThrift(config)))
+  }
 }

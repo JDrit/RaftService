@@ -3,7 +3,7 @@ package edu.rit.csh.scaladb.raft.server
 import com.twitter.util.Future
 import com.typesafe.scalalogging.LazyLogging
 
-import RaftConfiguration._
+import MessageConverters._
 
 class RaftInternalServiceImpl[C <: Command, R <: Result](serverState: RaftServer[C, R])
   extends RaftService.FutureIface with LazyLogging {
@@ -41,14 +41,6 @@ class RaftInternalServiceImpl[C <: Command, R <: Result](serverState: RaftServer
         VoteResponse(term = currentTerm, voteGranted = false)
       }
     }
-  }
-
-  private def thriftToRaftConfig(config: Configuration): RaftConfiguration = ???
-
-  private def thriftToLogEntry(entry: Entry): LogEntry = (entry.command, entry.configuration) match {
-    case (Some(cmd), None) => LogEntry(entry.term, entry.index, Left(cmd))
-    case (None, Some(config)) => LogEntry(entry.term, entry.index, Right(thriftToRaftConfig(config)))
-    case _ => throw new RuntimeException(s"could not parse Entry to LogEntry $entry")
   }
 
   def append(entries: AppendEntries): Future[AppendResponse] = Future {

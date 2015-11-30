@@ -8,8 +8,8 @@ import com.typesafe.scalalogging.LazyLogging
 
 import java.util.Collections
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference, AtomicLong}
-import edu.rit.csh.scaladb.raft.server.util.Scala2Java8
-import Scala2Java8._
+import edu.rit.csh.scaladb.raft.server.util.Scala2Java8._
+import MessageConverters._
 
 import scala.collection.JavaConversions._
 import scala.util.Random
@@ -31,7 +31,7 @@ import scala.util.Random
 //     '------------------------------------------------------------------'
 //
 
-case class NotLeaderException() extends Exception("Not leader")
+case class NotLeaderException(address: String) extends Exception("Not leader")
 
 /**
  * The actual state of the raft consensus algorithm. This holds all the information and executes
@@ -40,11 +40,13 @@ case class NotLeaderException() extends Exception("Not leader")
  * @param self the peer that stores the information about this given server
  * @param peers the list of all peers in the system, including itself
  * @param stateMachine the state machine that is used to execute commands.
+ * @param parser the parser used to serialize and deserialize the commands to the state machine
  * @tparam C the type of the command being sent
  * @tparam R the type of the result being sent
  */
-class RaftServer[C <: Command, R <: Result](self: Peer, peers: Array[Peer],
-                                            stateMachine: StateMachine[C, R]) extends LazyLogging {
+class RaftServer[C <: Command, R <: Result]
+  (self: Peer, peers: Array[Peer], stateMachine: StateMachine[C, R])
+  (implicit parser: MessageSerializer[C]) extends LazyLogging {
 
   // When servers start up, they begin as followers. A server remains in follower state
   // as long as it receives valid RPCs from a leader or candidate
@@ -192,7 +194,7 @@ class RaftServer[C <: Command, R <: Result](self: Peer, peers: Array[Peer],
   /**
    * Gets the duration since the last heartbeat has occurred
    */
-  def getLastHeartbeat(): Duration = (System.nanoTime() - lastHeartbeat.get()).nanoseconds
+  private def getLastHeartbeat(): Duration = (System.nanoTime() - lastHeartbeat.get()).nanoseconds
 
   /**
    * The timeout used for when the server should start the election process.
@@ -214,7 +216,7 @@ class RaftServer[C <: Command, R <: Result](self: Peer, peers: Array[Peer],
     // TODO actually finish this
     logger.info(s"applying log $log")
     log.cmd match {
-      case Left(cmd) => stateMachine.applyLog(stateMachine.deserializeCommand(cmd))
+      case Left(cmd) => stateMachine.applyLog(parser.deserialize(cmd))
       case Right(config) => logger.info("config change")
     }
   }
@@ -235,13 +237,33 @@ class RaftServer[C <: Command, R <: Result](self: Peer, peers: Array[Peer],
    * @return the result of the successful completion of the command
    */
   @throws[NotLeaderException]
-  def submitCommand(command: C): R = {
+  def submitCommand[Op <: C, Res <: R](command: Op): Future[Res] = Future {
     if (!getLeaderId().contains(self.id)) {
-      throw new NotLeaderException()
+      throw new NotLeaderException(peers(getLeaderId().get).address)
     } else {
-      val index = log.lastOption.map(_.index).getOrElse(0)
-      val logEntry = LogEntry(currentTerm.get, index, Left(stateMachine.serializeCommand(command)))
+      val index = log.lastOption.map(_.index + 1).getOrElse(0)
+      val logEntry = LogEntry(currentTerm.get, index, Left(parser.serialize(command)))
       appendLog(Seq(logEntry))
+
+      val futures = peers.filter(_.id != self.id).map { peer =>
+        val (prevLogIndex, prevLogTerm) = log.lastOption
+          .map(entry => (entry.index, entry.term))
+          .getOrElse((0, 0))
+        val append = AppendEntries(getCurrentTerm(), self.id, prevLogIndex, prevLogTerm,
+          Seq(MessageConverters.logEntryToThrift(logEntry)), commitIndex.get)
+        peer.appendClient(append).onSuccess { response =>
+          if (response.success) {
+            // TODO update peer.nextIndex
+            // TODO update peer.matchIndex
+          } else {
+
+          }
+        }
+      }
+
+      val responses = Await.result(Future.collect(futures), 100.milliseconds)
+
+      null.asInstanceOf[Res]
     }
   }
 

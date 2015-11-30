@@ -29,7 +29,7 @@ object Client {
   def main(args: Array[String]): Unit = {
     val get: GetRequest => Future[GetResponse] = createClient(
       Thrift.newIface[ClientOperations.FutureIface](args(0)).get)
-    val response = Await.result(get(GetRequest(UUID.randomUUID().toString, args(1))))
+    val response = Await.result(get(GetRequest(UUID.randomUUID().toString, 1, args(1))))
     println(response)
   }
 }
