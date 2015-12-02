@@ -113,7 +113,7 @@ trait MessageSerializer[C <: Command] {
  * @param index the global index in the log of this entry
  * @param cmd the command or configuration change of this server
  */
-case class LogEntry(term: Int, index: Int, cmd: Either[String, RaftConfiguration]) {
+case class LogEntry(term: Int, index: Int, cmd: Either[String, Configuration]) {
 
   override def toString: String =
     s"""entry {
@@ -124,18 +124,16 @@ case class LogEntry(term: Int, index: Int, cmd: Either[String, RaftConfiguration
 }
 
 object MessageConverters {
-  def thriftToRaftConfig(config: Configuration): RaftConfiguration = ???
 
-  def raftConfigToThrift(config: RaftConfiguration):  Configuration = ???
 
   def thriftToLogEntry(entry: Entry): LogEntry = (entry.command, entry.configuration) match {
     case (Some(cmd), None) => LogEntry(entry.term, entry.index, Left(cmd))
-    case (None, Some(config)) => LogEntry(entry.term, entry.index, Right(thriftToRaftConfig(config)))
+    case (None, Some(config)) => LogEntry(entry.term, entry.index, Right(config))
     case _ => throw new RuntimeException(s"could not parse Entry to LogEntry $entry")
   }
 
   def logEntryToThrift(logEntry: LogEntry): Entry = logEntry.cmd match {
     case Left(cmd) => Entry(logEntry.term, logEntry.index, EntryType.Command, Some(cmd), None)
-    case Right(config) => Entry(logEntry.term, logEntry.index, EntryType.Configuration, None, Some(raftConfigToThrift(config)))
+    case Right(config) => Entry(logEntry.term, logEntry.index, EntryType.Configuration, None, Some(config))
   }
 }

@@ -1,9 +1,10 @@
 package edu.rit.csh.scaladb.raft.server
 
-import com.twitter.util.{LruMap, Await, SynchronizedLruMap, Future}
+import com.twitter.util.{Await, Future}
 import com.twitter.conversions.time._
 import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.client._
+import edu.rit.csh.scaladb.raft.server.util.ClientCache
 
 /**
  * The service that the client connects to. This then forwards requests to the raft server, which
@@ -23,6 +24,7 @@ class RaftClientServiceImpl(raftServer: RaftServer[Operation, OpResult])
 
   @throws[NotLeader]
   def get(get: GetRequest): Future[GetResponse] = Future {
+    logger.debug("received a client GET request")
     cache.get(get.clientId, get.commandId) match {
       case Some(response) =>
         GetResponse(response.asInstanceOf[GetResult].value)
@@ -49,22 +51,5 @@ class RaftClientServiceImpl(raftServer: RaftServer[Operation, OpResult])
 
   @throws[NotLeader]
   def delete(delete: DeleteRequest): Future[DeleteResponse] = ???
-
-}
-
-/**
- * Uses nested LRU caches per clients to keep track of already processed requests
- * @param size the size of the nested LRU caches to use
- */
-class ClientCache(size: Int) {
-  private val cache = new LruMap[String, LruMap[Int, OpResult]](size)
-
-  def get(client: String, id: Int): Option[OpResult] = this.synchronized {
-    cache.get(client).flatMap(_.get(id))
-  }
-
-  def put(client: String, id: Int, response: OpResult): Unit = this.synchronized {
-    cache.getOrElseUpdate(client, new LruMap[Int, OpResult](size)).put(id, response)
-  }
 
 }

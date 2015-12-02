@@ -12,7 +12,7 @@ class RaftInternalServiceImpl[C <: Command, R <: Result](serverState: RaftServer
   /**
    * Invoked by candidates to gather votes
    */
-  def vote(requestVote: RequestVote): Future[VoteResponse] = Future {
+  override def vote(requestVote: RequestVote): Future[VoteResponse] = Future {
     logger.debug("received RequestVote RPC")
     val currentTerm = serverState.getCurrentTerm()
 
@@ -43,29 +43,35 @@ class RaftInternalServiceImpl[C <: Command, R <: Result](serverState: RaftServer
     }
   }
 
-  def append(entries: AppendEntries): Future[AppendResponse] = Future {
-    logger.debug(s"received AppendEntries RPC: $entries")
+  override def append(entries: AppendEntries): Future[AppendResponse] = Future {
+    logger.debug("received AppendEntries RPC")
     val currentTerm = serverState.getCurrentTerm(entries.term)
-    val commitIndex = serverState.getCommitIndex()
     serverState.setHeartbeat(entries.term)
     serverState.setLeaderId(entries.leaderId)
-    logger.debug(serverState.toString())
 
-    // Reply false if term < currentTerm
-    if (entries.term < currentTerm) {
-      AppendResponse(term = currentTerm, success = false)
-    } else {
-      serverState.getLogEntry(entries.prevLogIndex) match {
-        case Some(entry) if entry.term == entries.prevLogTerm =>
-          serverState.appendLog(entries.entires.map(thriftToLogEntry))
-          AppendResponse(term = currentTerm, success = true)
-        case None =>
-          serverState.appendLog(entries.entires.map(thriftToLogEntry))
-          AppendResponse(term = currentTerm, success = true)
-        // Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
-        case _ =>
-          AppendResponse(term = currentTerm, success = false)
+    try {
+      if (entries.term < currentTerm) {
+        // Reply false if term < currentTerm
+        AppendResponse(term = currentTerm, success = false)
+      } else {
+        serverState.getLogEntry(entries.prevLogIndex) match {
+          case Some(entry) if entry.term == entries.prevLogTerm =>
+            serverState.appendLog(entries.entires.map(thriftToLogEntry))
+            AppendResponse(term = currentTerm, success = true)
+          case None =>
+            serverState.appendLog(entries.entires.map(thriftToLogEntry))
+            AppendResponse(term = currentTerm, success = true)
+          case _ =>
+            // Reply false if log does not contain an entry at prevLogIndex
+            // whose term matches prevLogTerm
+            AppendResponse(term = currentTerm, success = false)
+        }
       }
+    } catch {
+      case ex: Exception =>
+        logger.error(s"Error while processing append command")
+        ex.printStackTrace()
+        AppendResponse(term = currentTerm, success = false)
     }
   }
 }

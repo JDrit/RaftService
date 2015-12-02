@@ -12,6 +12,7 @@ import edu.rit.csh.scaladb.raft.server.util.Scala2Java8._
 import MessageConverters._
 
 import scala.collection.JavaConversions._
+import scala.collection.mutable
 import scala.util.Random
 
 //                                  times out,
@@ -48,6 +49,8 @@ class RaftServer[C <: Command, R <: Result]
   (self: Peer, peers: Array[Peer], stateMachine: StateMachine[C, R])
   (implicit parser: MessageSerializer[C]) extends LazyLogging {
 
+  private final val DEBUG_INCREASE = 10
+
   // When servers start up, they begin as followers. A server remains in follower state
   // as long as it receives valid RPCs from a leader or candidate
   private val status = new AtomicReference(ServerType.Follower)
@@ -62,7 +65,7 @@ class RaftServer[C <: Command, R <: Result]
   private val votedFor = new AtomicReference[Option[Int]](None)
   // log entries; each entry contains command for state machine, and term when entry
   // as received by leader (first index is 1)
-  private val log = Collections.synchronizedList(new java.util.ArrayList[LogEntry]())
+  private val log: mutable.Buffer[LogEntry] = new Log()
 
   //
   // volatile state on all servers
@@ -116,9 +119,14 @@ class RaftServer[C <: Command, R <: Result]
             .getOrElse((0, 0))
           val append = AppendEntries(getCurrentTerm(), self.id, prevLogIndex,
             prevLogTerm, Seq.empty, commitIndex.get)
-          peers.map(peer => peer.appendClient(append))
+          peers.map { peer =>
+            peer.appendClient(append)
+              .onFailure { exception =>
+                logger.debug(s"exception sending heartbeat to ${peer.address}, $exception")
+              }
+          }
         }
-        val sleep = 100.milliseconds
+        val sleep = 100.milliseconds * DEBUG_INCREASE
         Thread.sleep(sleep.inMilliseconds)
       }
     }
@@ -167,11 +175,7 @@ class RaftServer[C <: Command, R <: Result]
 
   def setCommitIndex(index: Int): Unit = commitIndex.set(index)
 
-  def getLogEntry(index: Int): Option[LogEntry] = {
-    val entry = log.get(index)
-    if (entry == null) Some(entry)
-    else None
-  }
+  def getLogEntry(index: Int): Option[LogEntry] = log.lift(index)
 
   /**
    * While waiting for votes, a candidate may receive an  AppendEntries RPC from another server
@@ -206,29 +210,31 @@ class RaftServer[C <: Command, R <: Result]
   private def electionTimeout(): Duration = {
     val min = 150
     val max = 300
-    (min + Random.nextInt(max - min + 1)).milliseconds
+    (min + Random.nextInt(max - min + 1)).milliseconds * DEBUG_INCREASE
   }
 
   /**
    * Called when a log has been applied to the replicated state machine
    */
-  private def applyLog(log: LogEntry): Unit = {
+  private def applyLog(entry: LogEntry): Unit = {
     // TODO actually finish this
-    logger.info(s"applying log $log")
-    log.cmd match {
+    logger.info(s"applying log $entry")
+    entry.cmd match {
       case Left(cmd) => stateMachine.applyLog(parser.deserialize(cmd))
       case Right(config) => logger.info("config change")
     }
   }
 
   /**
-   * Adds the entries to the log, overwriting new ones
+   * Adds the entries to the log, overwriting new ones.
+   * The entries given must be inorder
    */
-  def appendLog(entries: Seq[LogEntry]): Unit = { // TODO will break when inserting new ones
-    entries.foreach { entry => log.set(entry.index, entry) }
+  def appendLog(entries: Seq[LogEntry]): Unit = entries.foreach { entry =>
+    log.lift(entry.index)
+      .map(_ => log.set(entry.index, entry))
+      .getOrElse(log += entry)
     logger.debug(s"appending ${entries.length} entries to the log")
   }
-
 
   /**
    * Log replication (5.3)
@@ -238,19 +244,26 @@ class RaftServer[C <: Command, R <: Result]
    */
   @throws[NotLeaderException]
   def submitCommand[Op <: C, Res <: R](command: Op): Future[Res] = Future {
+    logger.debug(s"got command $command")
     if (!getLeaderId().contains(self.id)) {
       throw new NotLeaderException(peers(getLeaderId().get).address)
     } else {
       val index = log.lastOption.map(_.index + 1).getOrElse(0)
+      logger.debug("starting to process command")
       val logEntry = LogEntry(currentTerm.get, index, Left(parser.serialize(command)))
+      logger.debug(s"log entry: $logEntry")
       appendLog(Seq(logEntry))
+      logger.debug("log appended locally")
+
+      val (prevLogIndex, prevLogTerm) = log.lastOption
+        .map(entry => (entry.index, entry.term))
+        .getOrElse((0, 0))
 
       val futures = peers.filter(_.id != self.id).map { peer =>
-        val (prevLogIndex, prevLogTerm) = log.lastOption
-          .map(entry => (entry.index, entry.term))
-          .getOrElse((0, 0))
+        logger.info(s"leader sending log to slave ${peer.address}")
         val append = AppendEntries(getCurrentTerm(), self.id, prevLogIndex, prevLogTerm,
           Seq(MessageConverters.logEntryToThrift(logEntry)), commitIndex.get)
+        logger.info(s"leader sending log to slave ${peer.address}")
         peer.appendClient(append).onSuccess { response =>
           if (response.success) {
             // TODO update peer.nextIndex
@@ -307,15 +320,21 @@ class RaftServer[C <: Command, R <: Result]
           .map(entry => (entry.index, entry.term))
           .getOrElse((0, 0))
 
-        logger.debug("received enough votes to become leader")
+        logger.debug(
+          s"""Received enough votes to become leader:
+             |new config: $this
+           """.stripMargin)
 
         // It then sends heartbeat messages to all of the other servers to establish its
         // authority and to prevent new elections.
-        val heartBeat = AppendEntries(term, self.id, lastIndex, lastTerm, Seq.empty, index)
+
         peers.foreach { peer =>
-          peer.appendClient(heartBeat).onFailure { exception =>
-            println(s"exception sending out initial heartbeat to ${peer.address}")
-          }
+          peer.appendClient(AppendEntries(term, self.id, lastIndex, lastTerm, Seq.empty, index))
+            .onFailure { exception =>
+              logger.debug(
+                s"""Exception sending out initial heartbeat to ${peer.address}
+                   |exception: $exception""".stripMargin)
+            }
         }
 
         // When a leader first comes to power, it initializes all nextIndex values to the index
