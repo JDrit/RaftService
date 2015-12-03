@@ -3,8 +3,6 @@ package edu.rit.csh.scaladb.raft.server.util
 import com.twitter.util.LruMap
 import edu.rit.csh.scaladb.raft.server.{OpResult, util}
 
-import scala.reflect.ClassTag
-
 /**
  * Uses nested LRU caches per clients to keep track of already processed requests
  * @param size the size of the nested LRU caches to use

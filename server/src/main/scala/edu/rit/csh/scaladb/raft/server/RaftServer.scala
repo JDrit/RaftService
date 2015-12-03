@@ -61,7 +61,7 @@ class RaftServer[C <: Command, R <: Result]
   private val votedFor = new AtomicReference[Option[Int]](None)
   // log entries; each entry contains command for state machine, and term when entry
   // as received by leader (first index is 1)
-  private val log: mutable.Buffer[LogEntry] = new Log[LogEntry]()
+  private val log: Log[LogEntry] = new Log[LogEntry]()
 
   //
   // volatile state on all servers
@@ -156,20 +156,25 @@ class RaftServer[C <: Command, R <: Result]
   def clearLeaderId(): Unit = leaderId.set(None)
 
   /**
-   * Increments the commit index.
-   * If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied]
-   * to state machine
+   * Updates the commit index, applying all entries in the log up to, and including,
+   * the index given
+   * @param index the new commit index for this server
    */
-  def incrementCommitIndex(): Unit = {
-    val index = commitIndex.incrementAndGet()
-    if (index > lastApplied.get()) {
-      applyLog(log.get(lastApplied.getAndIncrement()))
+  def setCommitIndex(index: Int): Unit = {
+    for (i <- commitIndex.get() to index) {
+      logger.info(s"applying log entry #$i")
+      log.get(i).cmd match {
+        case Left(cmd) =>
+          stateMachine.applyLog(parser.deserialize(cmd))
+        case Right(config) =>
+          logger.info("config change")
+          throw new NotImplementedError("configuration change not implemented yet")
+      }
     }
+    commitIndex.set(index)
   }
 
-  def setCommitIndex(index: Int): Unit = commitIndex.set(index)
-
-  def getLogEntry(index: Int): Option[LogEntry] = log.lift(index)
+  def getLogEntry: Int => Option[LogEntry] = log.lift
 
   /**
    * While waiting for votes, a candidate may receive an  AppendEntries RPC from another server
@@ -208,26 +213,46 @@ class RaftServer[C <: Command, R <: Result]
   }
 
   /**
-   * Called when a log has been applied to the replicated state machine
-   */
-  private def applyLog(entry: LogEntry): Unit = {
-    // TODO actually finish this
-    logger.info(s"applying log $entry")
-    entry.cmd match {
-      case Left(cmd) => stateMachine.applyLog(parser.deserialize(cmd))
-      case Right(config) => logger.info("config change")
-    }
-  }
-
-  /**
    * Adds the entries to the log, overwriting new ones.
    * The entries given must be inorder
    */
   def appendLog(entries: Seq[LogEntry]): Unit = entries.foreach { entry =>
+    // f an existing entry conflicts with a new one (same index but different terms),
+    // delete the existing entry and all that follow it (§5.3)
     log.lift(entry.index)
       .map(_ => log.set(entry.index, entry))
       .getOrElse(log += entry)
     logger.debug(s"appending ${entries.length} entries to the log")
+  }
+
+  /**
+   * Sends an append request to the peer, retying till the peer returns success.
+   * Resents the request if there is a failure sending it, like network partition.
+   * If the returns success = false, then the next index of that client is decremented
+   * and the request is sent again
+   * @param peer the peer to send the message to
+   * @return a future for the successful response to the request
+   */
+  private def appendRequest(peer: Peer): Future[AppendResponse] = {
+    val (prevLogIndex, prevLogTerm) = log.lastOption
+      .map(entry => (entry.index, entry.term))
+      .getOrElse((0, 0))
+    val entries = log.range(peer.getNextIndex(), log.length).map(MessageConverters.logEntryToThrift)
+    val request = AppendEntries(getCurrentTerm(), self.id, prevLogIndex, prevLogTerm, entries, commitIndex.get)
+    peer.appendClient(request).onFailure { exception =>
+      Thread.sleep(100) // TODO maybe?
+      appendRequest(peer)
+    }.onSuccess { response =>
+      if (response.success) {
+        logger.debug(s"received successful update from ${peer.address}")
+        peer.incNextIndex()
+        peer.incMatchIndex()
+      } else {
+        logger.debug(s"peer ${peer.address} failed the request, trying again")
+        peer.decNextIndex()
+        appendRequest(peer)
+      }
+    }
   }
 
   /**
@@ -243,33 +268,15 @@ class RaftServer[C <: Command, R <: Result]
       throw new NotLeaderException(peers(getLeaderId().get).address)
     } else {
       val index = log.lastOption.map(_.index + 1).getOrElse(0)
-      logger.debug("starting to process command")
       val logEntry = LogEntry(currentTerm.get, index, Left(parser.serialize(command)))
       logger.debug(s"log entry: $logEntry")
+      // If command received from client: append entry to local log, respond after
+      // entry applied to state machine
       appendLog(Seq(logEntry))
-      logger.debug("log appended locally")
 
-      val (prevLogIndex, prevLogTerm) = log.lastOption
-        .map(entry => (entry.index, entry.term))
-        .getOrElse((0, 0))
-
-      val futures = peers.filter(_.id != self.id).map { peer =>
-        logger.info(s"leader sending log to slave ${peer.address}")
-        val append = AppendEntries(getCurrentTerm(), self.id, prevLogIndex, prevLogTerm,
-          Seq(MessageConverters.logEntryToThrift(logEntry)), commitIndex.get)
-        logger.info(s"leader sending log to slave ${peer.address}")
-        peer.appendClient(append).onSuccess { response =>
-          if (response.success) {
-            // TODO update peer.nextIndex
-            // TODO update peer.matchIndex
-          } else {
-
-          }
-        }
-      }
-
+      val futures = peers.map(appendRequest)
       val responses = Await.result(Future.collect(futures), 100.milliseconds)
-
+      // TODO respond with complete request
       null.asInstanceOf[Res]
     }
   }

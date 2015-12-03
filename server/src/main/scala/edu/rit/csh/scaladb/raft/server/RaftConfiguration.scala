@@ -1,6 +1,7 @@
 package edu.rit.csh.scaladb.raft.server
 
 import java.net.InetSocketAddress
+import java.util.concurrent.atomic.AtomicInteger
 
 import com.twitter.conversions.time._
 import com.twitter.finagle.Thrift
@@ -25,12 +26,31 @@ object State extends Enumeration {
  * Server configuration for all members of the cluster
  * @param id the unique ID of the server
  * @param inetAddress the address to send requests to
- * @param nextIndex index of the next log entry to send to that server
- *                  (initialized to leader last log index + 1)
- * @param matchIndex index of highest log entry known to be replicated on server
- *                   (initialized to 0, increases monotonically)
  */
-case class Peer(id: Int, inetAddress: InetSocketAddress, var nextIndex: Int, var matchIndex: Int) {
+class Peer(val id: Int, inetAddress: InetSocketAddress) {
+
+  val address = inetAddress.getHostName + ":" + inetAddress.getPort
+
+  // index of the next log entry to send to that server (initialized to
+  // leader last log index + 1)
+  private val nextIndex = new AtomicInteger(1)
+  // index of highest log entry known to be replicated on server
+  // (initialized to 0, increases monotonically)
+  private val matchIndex = new AtomicInteger(0)
+
+  val voteClient: RequestVote => Future[VoteResponse] = createClient(
+    Thrift.newIface[RaftService.FutureIface](address).vote)
+
+  val appendClient: AppendEntries => Future[AppendResponse] = createClient(
+    Thrift.newIface[RaftService.FutureIface](address).append)
+
+  def getNextIndex(): Int = nextIndex.get()
+
+  def incNextIndex(): Unit = nextIndex.incrementAndGet()
+
+  def decNextIndex(): Unit = nextIndex.decrementAndGet()
+
+  def incMatchIndex(): Unit = matchIndex.incrementAndGet()
 
   /**
    * Creates the standard client connection that is used to communicate to other Raft servers
@@ -46,14 +66,6 @@ case class Peer(id: Int, inetAddress: InetSocketAddress, var nextIndex: Int, var
     val maskCancel = new MaskCancelFilter[I, O]()
     retry andThen timeout andThen maskCancel andThen fun
   }
-
-  val address = inetAddress.getHostName + ":" + inetAddress.getPort
-
-  val voteClient: RequestVote => Future[VoteResponse] = createClient(
-    Thrift.newIface[RaftService.FutureIface](address).vote)
-
-  val appendClient: AppendEntries => Future[AppendResponse] = createClient(
-    Thrift.newIface[RaftService.FutureIface](address).append)
 
   override def toString: String =
     s"""peer {

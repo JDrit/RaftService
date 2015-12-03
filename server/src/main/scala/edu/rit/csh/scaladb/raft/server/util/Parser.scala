@@ -62,7 +62,7 @@ object ParserUtils extends LazyLogging {
     new Parser[Peer] {
       def apply(str: String): Peer = {
         val splits = str.split("-")
-        new Peer(iParser(splits(0)), addrParser(splits(1)), 1, 0)
+        new Peer(iParser(splits(0)), addrParser(splits(1)))
       }
     }
 
