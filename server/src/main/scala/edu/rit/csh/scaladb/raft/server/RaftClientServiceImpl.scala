@@ -5,6 +5,9 @@ import com.twitter.conversions.time._
 import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.client._
 import edu.rit.csh.scaladb.raft.server.util.ClientCache
+import scala.collection.mutable
+import scala.reflect.ClassTag
+import scala.reflect._
 
 /**
  * The service that the client connects to. This then forwards requests to the raft server, which
@@ -19,28 +22,47 @@ class RaftClientServiceImpl(raftServer: RaftServer[Operation, OpResult])
    * the latest serial number processed for each client, along with the associated response.
    * If it receives a command whose serial number has already been executed, it responds
    * immediately without re-executing the request
+   *
+   * Each request type has a different cache
    */
-  private val cache = new ClientCache(100)
+  private val cache = mutable.Map.empty[ClassTag[_ <: OpResult], ClientCache]
+
+  /**
+   * Process the client's request, checking first to see if the same request has not already
+   * been processed
+   * @param clientId the unique ID of the client
+   * @param commandId the unique ID per the command that the client is sending
+   * @param fun the function the processes the request if it command has not already been run
+   * @tparam R the type of the resulting operator
+   * @return returns the cached result or the result of running the function
+   */
+  private def process[R <: OpResult: ClassTag](clientId: String, commandId: Int, fun: () => R): R = {
+    val functionCache = cache.getOrElseUpdate(classTag[R], new ClientCache(100))
+    functionCache.get(clientId, commandId) match {
+      case Some(result) =>
+        logger.debug(s"client cache hit: $clientId, $commandId")
+        result.asInstanceOf[R]
+      case None =>
+        val result = fun()
+        functionCache.put(clientId, commandId, result)
+        result
+    }
+  }
 
   @throws[NotLeader]
   def get(get: GetRequest): Future[GetResponse] = Future {
     logger.debug("received a client GET request")
-    cache.get(get.clientId, get.commandId) match {
-      case Some(response) =>
-        GetResponse(response.asInstanceOf[GetResult].value)
-      case None =>
-        try {
-          val future = raftServer.submitCommand[Get, GetResult](Get(get.commandId, get.key))
-          val getResult = Await.result(future, 2.seconds)
-          val getResponse = GetResponse(getResult.value)
-          cache.put(get.clientId, get.commandId, getResult)
-          getResponse
-        } catch {
-          case ex: NotLeaderException =>
-            logger.debug(s"client service get not leader, ${ex.address}")
-            throw new NotLeader(ex.address)
-        }
-    }
+
+    GetResponse(process(get.clientId, get.commandId, { () =>
+      try {
+        val future: Future[GetResult] = raftServer.submitCommand(Get(get.commandId, get.key))
+        Await.result(future, 2.seconds)
+      } catch {
+        case ex: NotLeaderException =>
+          logger.debug(s"client service get not leader, ${ex.address}")
+          throw new NotLeader(ex.address)
+      }
+    }).value)
   }
 
   @throws[NotLeader]

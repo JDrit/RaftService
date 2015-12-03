@@ -1,7 +1,5 @@
 package edu.rit.csh.scaladb.raft.client
 
-import java.util.UUID
-
 import com.twitter.conversions.time._
 import com.twitter.finagle.Thrift
 import com.twitter.finagle.filter.MaskCancelFilter
@@ -29,7 +27,7 @@ object Client {
   def main(args: Array[String]): Unit = {
     val get: GetRequest => Future[GetResponse] = createClient(
       Thrift.newIface[ClientOperations.FutureIface](args(0)).get)
-    val response = Await.result(get(GetRequest(UUID.randomUUID().toString, 1, args(1))))
+    val response = Await.result(get(GetRequest("client", 1, args(1))))
     println(response)
   }
 }

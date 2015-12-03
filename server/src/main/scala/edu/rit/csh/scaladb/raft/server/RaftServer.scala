@@ -65,7 +65,7 @@ class RaftServer[C <: Command, R <: Result]
   private val votedFor = new AtomicReference[Option[Int]](None)
   // log entries; each entry contains command for state machine, and term when entry
   // as received by leader (first index is 1)
-  private val log: mutable.Buffer[LogEntry] = new Log()
+  private val log: mutable.Buffer[LogEntry] = new Log[LogEntry]()
 
   //
   // volatile state on all servers
@@ -85,8 +85,6 @@ class RaftServer[C <: Command, R <: Result]
   // reference to the futures that are sending the vote requests to the other servers.
   // a reference is kept so that they can be cancled when a heartbeat comes in from a leader.
   private val electionFuture = new AtomicReference[Option[Future[Seq[VoteResponse]]]](None)
-
-  private val entiresToSend = new LinkedBlockingQueue[LogEntry]()
 
   new Thread(new Runnable {
     override def run(): Unit = {
