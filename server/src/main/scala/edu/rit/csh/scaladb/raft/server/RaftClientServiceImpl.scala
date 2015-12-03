@@ -5,9 +5,12 @@ import com.twitter.conversions.time._
 import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.client._
 import edu.rit.csh.scaladb.raft.server.util.ClientCache
-import scala.collection.mutable
+
+import scala.collection.convert.decorateAsScala._
 import scala.reflect.ClassTag
 import scala.reflect._
+
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The service that the client connects to. This then forwards requests to the raft server, which
@@ -25,7 +28,7 @@ class RaftClientServiceImpl(raftServer: RaftServer[Operation, OpResult])
    *
    * Each request type has a different cache
    */
-  private val cache = mutable.Map.empty[ClassTag[_ <: OpResult], ClientCache]
+  private val cache = new ConcurrentHashMap[ClassTag[_ <: OpResult], ClientCache]().asScala
 
   /**
    * Process the client's request, checking first to see if the same request has not already

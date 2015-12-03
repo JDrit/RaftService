@@ -1,15 +1,11 @@
 package edu.rit.csh.scaladb.raft.server
 
-import java.util.concurrent.LinkedBlockingQueue
-
 import com.twitter.conversions.time._
 import com.twitter.util._
 import com.typesafe.scalalogging.LazyLogging
 
-import java.util.Collections
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference, AtomicLong}
 import edu.rit.csh.scaladb.raft.server.util.Scala2Java8._
-import MessageConverters._
 
 import scala.collection.JavaConversions._
 import scala.collection.mutable
