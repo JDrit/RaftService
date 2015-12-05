@@ -1,7 +1,6 @@
 package edu.rit.csh.scaladb.raft.server
 
-import com.twitter.util.{Await, Future}
-import com.twitter.conversions.time._
+import com.twitter.util.Future
 import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.client._
 import edu.rit.csh.scaladb.raft.server.util.ClientCache
@@ -30,51 +29,42 @@ class RaftClientServiceImpl(raftServer: RaftServer[Operation, OpResult])
    */
   private val cache = new ConcurrentHashMap[ClassTag[_ <: OpResult], ClientCache]().asScala
 
-  /**
-   * Process the client's request, checking first to see if the same request has not already
-   * been processed
-   * @param clientId the unique ID of the client
-   * @param commandId the unique ID per the command that the client is sending
-   * @param fun the function the processes the request if it command has not already been run
-   * @tparam R the type of the resulting operator
-   * @return returns the cached result or the result of running the function
-   */
-  private def process[R <: OpResult: ClassTag](clientId: String, commandId: Int, fun: () => R): R = {
+  private def process[R <: OpResult: ClassTag](client: String, id: Int, fun: () => Either[String, Future[R]]): Future[R] = {
     val functionCache = cache.getOrElseUpdate(classTag[R], new ClientCache(100))
-    functionCache.get(clientId, commandId) match {
-      case Some(result) =>
-        logger.debug(s"client cache hit: $clientId, $commandId")
-        result.asInstanceOf[R]
-      case None =>
-        val result = fun()
-        functionCache.put(clientId, commandId, result)
-        result
+    functionCache.get(client, id) match {
+      case Some(result) => Future.value(result.asInstanceOf[R])
+      case None => fun() match {
+        case Left(address) => Future.exception(new NotLeader(address))
+        case Right(futures) => futures.map { result =>
+          functionCache.put(client, id, result)
+          result
+        }.rescue { case ex: Exception =>
+          logger.debug("exception processing request")
+          ex.printStackTrace()
+          null
+        }
+      }
     }
   }
 
   @throws[NotLeader]
-  def get(get: GetRequest): Future[GetResponse] = Future {
-    logger.debug("received a client GET request")
-
-    GetResponse(process(get.clientId, get.commandId, { () =>
-      try {
-        val future: Future[GetResult] = raftServer.submitCommand(Get(get.commandId, get.key))
-        Await.result(future, 2.seconds)
-      } catch {
-        case ex: NotLeaderException =>
-          logger.debug(s"client service get not leader, ${ex.address}")
-          throw new NotLeader(ex.address)
-      }
-    }).value)
-  }
+  def get(get: GetRequest): Future[GetResponse] = process(get.clientId, get.commandId, { () =>
+    raftServer.submitCommand[Get, GetResult](Get(get.commandId, get.key))
+  }).map(result => GetResponse(result.value))
 
   @throws[NotLeader]
-  def put(put: PutRequest): Future[PutResponse] = ???
+  def put(put: PutRequest): Future[PutResponse] = process(put.clientId, put.commandId, { () =>
+    raftServer.submitCommand[Put, PutResult](Put(put.commandId, put.key, put.value))
+  }).map(result => PutResponse(result.overrided))
 
   @throws[NotLeader]
-  def cas(cas: CASRequest): Future[CASResponse] = ???
+  def cas(cas: CASRequest): Future[CASResponse] = process(cas.clientId, cas.commandId, { () =>
+    raftServer.submitCommand[CAS, CASResult](CAS(cas.commandId, cas.key, cas.curValue, cas.newValue))
+  }).map(result => CASResponse(result.replaced))
 
   @throws[NotLeader]
-  def delete(delete: DeleteRequest): Future[DeleteResponse] = ???
+  def delete(delete: DeleteRequest): Future[DeleteResponse] = process(delete.clientId, delete.commandId, { () =>
+    raftServer.submitCommand[Delete, DeleteResult](Delete(delete.commandId, delete.key))
+  }).map(result => DeleteResponse(result.deleted))
 
 }

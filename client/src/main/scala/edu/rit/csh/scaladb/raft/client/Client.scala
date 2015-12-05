@@ -1,11 +1,15 @@
 package edu.rit.csh.scaladb.raft.client
 
+import java.util.UUID
+
 import com.twitter.conversions.time._
 import com.twitter.finagle.Thrift
 import com.twitter.finagle.filter.MaskCancelFilter
 import com.twitter.finagle.service.{TimeoutFilter, RetryPolicy, RetryExceptionsFilter}
 import com.twitter.finagle.util.DefaultTimer
 import com.twitter.util.{Await, Future}
+
+import scala.util.Random
 
 object Client {
 
@@ -25,9 +29,24 @@ object Client {
   }
 
   def main(args: Array[String]): Unit = {
-    val get: GetRequest => Future[GetResponse] = createClient(
-      Thrift.newIface[ClientOperations.FutureIface](args(0)).get)
-    val response = Await.result(get(GetRequest("client", 1, args(1))))
-    println(response)
+
+    val address = args(0)
+    val thrift = Thrift.newIface[ClientOperations.FutureIface](address)
+    val clientID = "test"
+    val commandID = new Random().nextInt()
+
+    val response = args(1) match {
+      case "get" => thrift.get(GetRequest(clientID, commandID, args(2)))
+      case "put" => thrift.put(PutRequest(clientID, commandID, args(2), args(3)))
+      case "delete" => thrift.delete(DeleteRequest(clientID, commandID, args(2)))
+      case "cas" => thrift.cas(CASRequest(clientID, commandID, args(2), args(3), args(4)))
+    }
+
+    try {
+      val message = Await.result(response)
+      println(message)
+    } catch {
+      case ex: NotLeader => println(ex)
+    }
   }
 }

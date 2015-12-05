@@ -64,5 +64,6 @@ exception NotLeader {
 service ClientOperations {
     GetResponse get(1: GetRequest get) throws (1: NotLeader notLeader);
     PutResponse put(1: PutRequest put) throws (1: NotLeader notLeader);
+    DeleteResponse delete(1: DeleteRequest delete) throws (1: NotLeader notLeader)
     CASResponse cas(1: CASRequest cas) throws (1: NotLeader notLeader);
 }

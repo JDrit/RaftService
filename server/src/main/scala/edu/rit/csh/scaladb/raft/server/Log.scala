@@ -1,5 +1,7 @@
 package edu.rit.csh.scaladb.raft.server
 
+import com.typesafe.scalalogging.LazyLogging
+
 import scala.collection.JavaConversions._
 import scala.collection.mutable
 import scala.reflect.ClassTag
@@ -8,7 +10,7 @@ import scala.reflect.ClassTag
  * Class representing the replicated log. This is used to store all the logs that have been
  * replicated in the system. It is thread-safe. Only appending and updating of logs.
  */
-class Log[T: ClassTag] extends mutable.AbstractBuffer[T] {
+class Log[T: ClassTag] extends mutable.AbstractBuffer[T] with LazyLogging {
 
   private val log = new java.util.ArrayList[T]()
   private val lock = new Object()
@@ -20,14 +22,9 @@ class Log[T: ClassTag] extends mutable.AbstractBuffer[T] {
    * @param end the index to stop at exclusive
    * @return the sequence of the range
    */
-  def range(start: Int, end: Int): Array[T] = lock.synchronized {
-    var count = 0
-    val arr = new Array[T](end - start)
-    while (start < end) {
-      arr(count) = log.get(start)
-      count += 1
-    }
-    arr
+  def range(start: Int, end: Int): Seq[T] = lock.synchronized {
+    logger.debug(s"get range of $start - $end, size: ${log.length}")
+    (start until end).map { index => log.get(index) }
   }
 
   override def apply(n: Int): T = lock.synchronized(log.get(n))

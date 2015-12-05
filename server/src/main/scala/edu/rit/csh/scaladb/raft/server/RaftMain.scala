@@ -27,9 +27,7 @@ object RaftMain extends LazyLogging {
       logger.info(s"other configurations: ${otherServers.mkString("")}")
 
       val stateMachine = new MemoryStateMachine()
-      import stateMachine.Implicits._
-
-      val servers = Array(config) ++ otherServers
+      val servers = otherServers.+:(config).map(peer => (peer.id, peer)).toMap
       val raftServer = new RaftServer[Operation, OpResult](config, servers, stateMachine)
 
       val internalImpl = new RaftInternalServiceImpl(raftServer)

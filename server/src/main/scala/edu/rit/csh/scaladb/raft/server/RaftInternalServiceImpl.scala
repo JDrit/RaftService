@@ -23,8 +23,7 @@ class RaftInternalServiceImpl[C <: Command, R <: Result](serverState: RaftServer
    * @param requestVote the request for this server to vote
    * @return the result of this node voting
    */
-  override def vote(requestVote: RequestVote): Future[VoteResponse] = Future {
-    logger.debug("received RequestVote RPC")
+  override def vote(requestVote: RequestVote): Future[VoteResponse] = this.synchronized(Future {
     val currentTerm = serverState.getCurrentTerm()
 
     // If RPC request or response contains term T > currentTerm:
@@ -35,7 +34,7 @@ class RaftInternalServiceImpl[C <: Command, R <: Result](serverState: RaftServer
     }
 
     if (requestVote.term < currentTerm) {
-      logger.debug(s"vote failed for $requestVote")
+      logger.info(s"voted NO for ${requestVote.candidateId}")
       VoteResponse(term = currentTerm, voteGranted = false)
     } else {
       val votedFor = serverState.getVotedFor()
@@ -43,47 +42,39 @@ class RaftInternalServiceImpl[C <: Command, R <: Result](serverState: RaftServer
 
       // Each server will vote for at most one candidate in a
       // given term, on a first-come-first-served basis
-      if ((votedFor.contains(requestVote.candidateId) || votedFor.isEmpty) &&
-          requestVote.lastLogIndex >= commitIndex) {
+      if ((votedFor.contains(requestVote.candidateId) || votedFor.isEmpty) && requestVote.lastLogIndex >= commitIndex) {
         serverState.setVotedFor(requestVote.candidateId) // updates the current voted for
-        logger.debug(s"vote granted for $requestVote")
+        logger.info(s"voted YES for ${requestVote.candidateId}")
         VoteResponse(term = currentTerm, voteGranted = true)
       } else {
-        logger.debug(s"vote failed for $requestVote")
+        logger.info(s"voted NO for ${requestVote.candidateId}")
         VoteResponse(term = currentTerm, voteGranted = false)
       }
     }
-  }
+  })
 
-  override def append(entries: AppendEntries): Future[AppendResponse] = Future {
-    logger.debug("received AppendEntries RPC")
+  override def append(entries: AppendEntries): Future[AppendResponse] = this.synchronized(Future {
     val currentTerm = serverState.getCurrentTerm(entries.term)
+    val commitIndex = serverState.getCommitIndex()
     serverState.setHeartbeat(entries.term)
     serverState.setLeaderId(entries.leaderId)
 
-    if (entries.term < currentTerm) { // Reply false if term < currentTerm
+    // Reply false if term < currentTerm
+    if (entries.term < currentTerm) {
+      AppendResponse(term = currentTerm, success = false)
+    // Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
+    } else if (entries.prevLogIndex > -1 && !serverState.getLogEntry(entries.prevLogIndex).exists(_.term == entries.prevLogTerm)) {
       AppendResponse(term = currentTerm, success = false)
     } else {
-      serverState.getLogEntry(entries.prevLogIndex) match {
-        case Some(entry) if entry.term == entries.prevLogTerm => appendSuccess(entries, currentTerm)
-        case None => appendSuccess(entries, currentTerm)
-        case _ =>
-          // Reply false if log does not contain an entry at prevLogIndex
-          // whose term matches prevLogTerm
-          AppendResponse(term = currentTerm, success = false)
+      entries.entires.map(thriftToLogEntry).foreach(serverState.appendLog)
+      // If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+      if (entries.leaderCommit > commitIndex) {
+        val newCommit = entries.entires.lastOption
+          .map(entry => Math.min(entry.index, entries.leaderCommit))
+          .getOrElse(entries.leaderCommit)
+        serverState.setCommitIndex(newCommit)
       }
+      AppendResponse(term = currentTerm, success = true)
     }
-  }
-
-  private def appendSuccess(entries: AppendEntries, currentTerm: Int): AppendResponse = {
-    val commitIndex = serverState.getCommitIndex()
-    serverState.appendLog(entries.entires.map(thriftToLogEntry))
-    // If leaderCommit > commitIndex, set commitIndex =
-    // min(leaderCommit, index of last new entry)
-    if (entries.leaderCommit > commitIndex) {
-      serverState.setCommitIndex(Math.min(commitIndex,
-        entries.entires.lastOption.map(_.index).getOrElse(commitIndex)))
-    }
-    AppendResponse(term = currentTerm, success = true)
-  }
+  })
 }

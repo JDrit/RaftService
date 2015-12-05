@@ -4,13 +4,16 @@ import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicInteger
 
 import com.twitter.conversions.time._
-import com.twitter.finagle.Thrift
+import com.twitter.finagle.{Service, Thrift}
+import com.twitter.finagle.builder.ClientBuilder
 import com.twitter.finagle.filter.MaskCancelFilter
 import com.twitter.finagle.service.{TimeoutFilter, RetryPolicy, RetryExceptionsFilter}
+import com.twitter.finagle.thrift.{ThriftClientRequest, ThriftClientFramedCodec, ThriftServerFramedCodec}
 import com.twitter.finagle.util.DefaultTimer
 import com.twitter.util.Future
 
 import State.State
+import org.apache.thrift.protocol.TBinaryProtocol
 
 object ServerType extends Enumeration {
   type ServerType = Value
@@ -27,45 +30,44 @@ object State extends Enumeration {
  * @param id the unique ID of the server
  * @param inetAddress the address to send requests to
  */
-class Peer(val id: Int, inetAddress: InetSocketAddress) {
+class Peer(val id: Int, val inetAddress: InetSocketAddress) {
 
   val address = inetAddress.getHostName + ":" + inetAddress.getPort
 
+  private  val service:  Service[ThriftClientRequest, Array[Byte]] = ClientBuilder()
+    .codec(ThriftClientFramedCodec())
+    .hosts(address)
+    .timeout(3.seconds)
+    .hostConnectionLimit(100)
+    .tcpConnectTimeout(1.second)
+    .retries(3)
+    .failFast(false)
+    .build()
+
+  private val client = new RaftService.FinagledClient(service, new TBinaryProtocol.Factory())
+
   // index of the next log entry to send to that server (initialized to
   // leader last log index + 1)
-  private val nextIndex = new AtomicInteger(1)
+  private val nextIndex = new AtomicInteger(0)
   // index of highest log entry known to be replicated on server
   // (initialized to 0, increases monotonically)
-  private val matchIndex = new AtomicInteger(0)
+  private val matchIndex = new AtomicInteger(RaftServer.BASE_INDEX)
 
-  val voteClient: RequestVote => Future[VoteResponse] = createClient(
-    Thrift.newIface[RaftService.FutureIface](address).vote)
+  val voteClient: RequestVote => Future[VoteResponse] = client.vote
 
-  val appendClient: AppendEntries => Future[AppendResponse] = createClient(
-    Thrift.newIface[RaftService.FutureIface](address).append)
+  val appendClient: AppendEntries => Future[AppendResponse] = client.append
 
-  def getNextIndex(): Int = nextIndex.get()
+  val getNextIndex: () => Int = nextIndex.get
 
-  def incNextIndex(): Unit = nextIndex.incrementAndGet()
+  val incNextIndex: () => Int = nextIndex.incrementAndGet
 
-  def decNextIndex(): Unit = nextIndex.decrementAndGet()
+  val decNextIndex: () => Int = nextIndex.decrementAndGet
 
-  def incMatchIndex(): Unit = matchIndex.incrementAndGet()
+  val setNextIndex: Int => Unit = nextIndex.set
 
-  /**
-   * Creates the standard client connection that is used to communicate to other Raft servers
-   * @param fun the function that creates the request, which generates a Future for the response
-   *            from the remote server
-   * @tparam I the type of the request
-   * @tparam O the type of the remote server's response
-   * @return the function that sends the request to the server, returning a Future response
-   */
-  private def createClient[I, O](fun: I => Future[O]): I => Future[O] = {
-    val retry = new RetryExceptionsFilter[I, O](RetryPolicy.tries(3), DefaultTimer.twitter)
-    val timeout = new TimeoutFilter[I, O](3.seconds, DefaultTimer.twitter)
-    val maskCancel = new MaskCancelFilter[I, O]()
-    retry andThen timeout andThen maskCancel andThen fun
-  }
+  val setMatchIndex: Int => Unit = matchIndex.set
+
+  val incMatchIndex: () => Int = matchIndex.incrementAndGet
 
   override def toString: String =
     s"""peer {
