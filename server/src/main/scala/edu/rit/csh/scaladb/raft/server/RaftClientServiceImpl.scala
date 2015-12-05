@@ -3,14 +3,7 @@ package edu.rit.csh.scaladb.raft.server
 import com.twitter.util.Future
 import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.client._
-import edu.rit.csh.scaladb.raft.server.internal.{RaftServer, Result}
-import edu.rit.csh.scaladb.raft.server.util.ClientCache
-
-import scala.collection.convert.decorateAsScala._
-import scala.reflect.ClassTag
-import scala.reflect._
-
-import java.util.concurrent.ConcurrentHashMap
+import edu.rit.csh.scaladb.raft.server.internal._
 
 /**
  * The service that the client connects to. This then forwards requests to the raft server, which
@@ -19,52 +12,33 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class RaftClientServiceImpl(raftServer: RaftServer) extends ClientOperations.FutureIface with LazyLogging {
 
-  /**
-   * clients assign unique serial numbers to every command. Then, the state machine tracks
-   * the latest serial number processed for each client, along with the associated response.
-   * If it receives a command whose serial number has already been executed, it responds
-   * immediately without re-executing the request
-   *
-   * Each request type has a different cache
-   */
-  private val cache = new ConcurrentHashMap[ClassTag[_ <: Result], ClientCache]().asScala
-
-  private def process[R <: Result: ClassTag](client: String, id: Int, fun: () => Either[String, Future[R]]): Future[R] = {
-    val functionCache = cache.getOrElseUpdate(classTag[R], new ClientCache(100))
-    functionCache.get(client, id) match {
-      case Some(result) => Future.value(result.asInstanceOf[R])
-      case None => fun() match {
-        case Left(address) => Future.exception(new NotLeader(address))
-        case Right(futures) => futures.map { result =>
-          functionCache.put(client, id, result)
-          result
-        }.rescue { case ex: Exception =>
-          logger.debug("exception processing request")
-          ex.printStackTrace()
-          null
-        }
-      }
+  private def process[R](command: Command, convert: Result => R) = raftServer.submit(command) match {
+    case SuccessResult(futures) => futures.flatMap {
+      case Left(highest) => Future.exception(new AlreadySeen(highest))
+      case Right(result) => Future.value(convert(result))
     }
+    case NotLeaderResult(leader) => Future.exception(new NotLeader(leader))
   }
 
   @throws[NotLeader]
-  def get(get: GetRequest): Future[GetResponse] = process(get.clientId, get.commandId, { () =>
-    raftServer.submitCommand(Get(get.commandId, get.key))
-  }).map(result => GetResponse(result.asInstanceOf[GetResult].value))
+  @throws[AlreadySeen]
+  def get(get: GetRequest): Future[GetResponse] = process(Get(get.clientId, get.commandId, get.key),
+    { result => GetResponse(result.asInstanceOf[GetResult].value) })
 
   @throws[NotLeader]
-  def put(put: PutRequest): Future[PutResponse] = process(put.clientId, put.commandId, { () =>
-    raftServer.submitCommand(Put(put.commandId, put.key, put.value))
-  }).map(result => PutResponse(result.asInstanceOf[PutResult].overrided))
+  @throws[AlreadySeen]
+  def put(put: PutRequest): Future[PutResponse] = process(Put(put.clientId, put.commandId, put.key,
+    put.value), { result => PutResponse(result.asInstanceOf[PutResult].overrided) })
 
   @throws[NotLeader]
-  def cas(cas: CASRequest): Future[CASResponse] = process(cas.clientId, cas.commandId, { () =>
-    raftServer.submitCommand(CAS(cas.commandId, cas.key, cas.curValue, cas.newValue))
-  }).map(result => CASResponse(result.asInstanceOf[CASResult].replaced))
+  @throws[AlreadySeen]
+  def cas(cas: CASRequest): Future[CASResponse] = process(CAS(cas.clientId, cas.commandId, cas.key,
+    cas.curValue, cas.newValue), { result => CASResponse(cas.asInstanceOf[CASResult].replaced) })
 
   @throws[NotLeader]
-  def delete(delete: DeleteRequest): Future[DeleteResponse] = process(delete.clientId, delete.commandId, { () =>
-    raftServer.submitCommand(Delete(delete.commandId, delete.key))
-  }).map(result => DeleteResponse(result.asInstanceOf[DeleteResult].deleted))
-
+  @throws[AlreadySeen]
+  def delete(delete: DeleteRequest): Future[DeleteResponse] = process(Delete(delete.clientId,
+    delete.commandId, delete.key), { result =>
+      DeleteResponse(result.asInstanceOf[DeleteResult].deleted)
+    })
 }

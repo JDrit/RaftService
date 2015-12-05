@@ -26,7 +26,7 @@ private[internal] object State extends Enumeration {
  * @param id the unique ID of the server
  * @param inetAddress the address to send requests to
  */
-class Peer(val id: Int, val inetAddress: InetSocketAddress) {
+private[internal] class Peer(val id: Int, val inetAddress: InetSocketAddress) {
 
   val address = inetAddress.getHostName + ":" + inetAddress.getPort
 
@@ -92,18 +92,27 @@ private[internal] case class RaftConfiguration(state: State, cOldPeers: Array[Pe
 }
 
 /**
+ * The result of submitting a command to the server. It either returns a future for the
+ * successful completion of the command, the address of the true leader, or a message
+ * telling that the command has already been processed
+ */
+sealed abstract class SubmitResult
+final case class SuccessResult(future: Future[Either[Int, Result]]) extends SubmitResult
+final case class NotLeaderResult(leader: String) extends SubmitResult
+
+/**
  * Base class for commands send to the client. The State machine being used has to extend this.
  * The state machine will get called with every new command
  * @param id each command needs to have an unique ID so that the server can make sure
  *           that the same command will not be executed twice
  */
-abstract class Command(id: Int)
+abstract class Command(val client: String, val id: Int)
 
 /**
  * Base class for the results of commands that have been sent to the server.
  * @param id the ID of the command that this is a result to
  */
-abstract class Result(id: Int)
+abstract class Result(val id: Int)
 
 /**
  * This is the serializer / deserializer that is used to format the commands to send to the

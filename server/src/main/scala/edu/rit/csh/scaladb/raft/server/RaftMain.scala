@@ -6,8 +6,7 @@ import com.twitter.finagle.builder.ServerBuilder
 import com.twitter.finagle.thrift.ThriftServerFramedCodec
 import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.client.ClientOperations.{FinagledService => ClientService}
-import edu.rit.csh.scaladb.raft.server.internal.RaftService.{FinagledService => InternalService}
-import edu.rit.csh.scaladb.raft.server.internal.{RaftServer, Peer, RaftInternalServiceImpl}
+import edu.rit.csh.scaladb.raft.server.internal.RaftServer
 import edu.rit.csh.scaladb.raft.server.util.ParserUtils
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
 
@@ -20,28 +19,18 @@ object RaftMain extends LazyLogging {
     val pArgs: Option[ArgMap] = parseArgs(Set("self", "client", "peers"), args)
     pArgs.foreach { pArgs =>
 
-      val config = parse[Peer](pArgs("self"))
-      val otherServers = parse[Array[Peer]](pArgs("peers"))
+      val (id, address) = parse[(Int, InetSocketAddress)](pArgs("self"))
+      val otherServers = parse[Array[(Int, InetSocketAddress)]](pArgs("peers"))
       val client = parse[InetSocketAddress](pArgs("client"))
 
-      logger.info(s"self configuration: $config")
-      logger.info(s"other configurations: ${otherServers.mkString("")}")
+      logger.info(s"self configuration: $id")
+      logger.info(s"other configurations: ${otherServers.mkString(", ")}")
 
       val stateMachine = new MemoryStateMachine()
-      val servers = otherServers.+:(config).map(peer => (peer.id, peer)).toMap
-      val raftServer = new RaftServer(config, servers, stateMachine)
-
-      val internalImpl = new RaftInternalServiceImpl(raftServer)
-      val internalService = new InternalService(internalImpl, new Factory())
+      val raftServer = RaftServer(stateMachine, id, address, otherServers)
 
       val clientImpl = new RaftClientServiceImpl(raftServer)
       val clientService = new ClientService(clientImpl, new Factory())
-
-      ServerBuilder()
-        .bindTo(config.inetAddress)
-        .codec(ThriftServerFramedCodec())
-        .name("Raft Internal Service")
-        .build(internalService)
 
       ServerBuilder()
         .bindTo(client)

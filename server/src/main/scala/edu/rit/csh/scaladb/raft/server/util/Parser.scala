@@ -58,11 +58,11 @@ object ParserUtils extends LazyLogging {
       }
     }
 
-  implicit def peerParse(implicit iParser: Parser[Int], addrParser: Parser[InetSocketAddress]) =
-    new Parser[Peer] {
-      def apply(str: String): Peer = {
+  implicit def tuple2Parse[T1, T2](implicit parser1: Parser[T1], parser2: Parser[T2]) =
+    new Parser[(T1, T2)] {
+      def apply(str: String): (T1, T2) = {
         val splits = str.split("-")
-        new Peer(iParser(splits(0)), addrParser(splits(1)))
+        (parser1(splits(0)), parser2(splits(1)))
       }
     }
 

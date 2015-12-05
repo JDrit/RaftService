@@ -1,12 +1,17 @@
 package edu.rit.csh.scaladb.raft.server.internal
 
+import java.net.{InetSocketAddress, InetAddress}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
 
 import com.twitter.conversions.time._
+import com.twitter.finagle.builder.ServerBuilder
+import com.twitter.finagle.thrift.ThriftServerFramedCodec
 import com.twitter.util._
 import com.typesafe.scalalogging.LazyLogging
-import edu.rit.csh.scaladb.raft.server.StateMachine
+import edu.rit.csh.scaladb.raft.server.internal.RaftService.FinagledService
+import edu.rit.csh.scaladb.raft.server.internal.StateMachine
 import edu.rit.csh.scaladb.raft.server.util.Scala2Java8._
+import org.apache.thrift.protocol.TBinaryProtocol.Factory
 
 import scala.collection.JavaConversions._
 import scala.util.Random
@@ -28,8 +33,36 @@ import scala.util.Random
 //     '------------------------------------------------------------------'
 //
 
-private[internal] object RaftServer {
-  final val BASE_INDEX: Int = -1
+object RaftServer {
+  private[internal] final val BASE_INDEX: Int = -1
+
+  /**
+   * Constructs the server and starts listening on the given address
+   * @param stateMachine the state machine to use as the system to process commands
+   * @param id the unique identifer for this node
+   * @param address the address for the internal raft service to listen on
+   * @param others the list of the other peers currently in the network
+   * @return the raft server that has been constructed
+   */
+  def apply(stateMachine: StateMachine, id: Int, address: InetSocketAddress,
+            others: Seq[(Int, InetSocketAddress)]): RaftServer = {
+    val self = new Peer(id, address)
+    val servers = others.map { case (oId, oAddress) => new Peer(oId, oAddress) }
+      .:+(self)
+      .map { peer => (peer.id, peer) }
+      .toMap
+    val raftServer = new RaftServer(self, servers, stateMachine)
+    val internalImpl = new RaftInternalServiceImpl(raftServer)
+    val internalService = new FinagledService(internalImpl, new Factory())
+
+    ServerBuilder()
+      .bindTo(self.inetAddress)
+      .codec(ThriftServerFramedCodec())
+      .name("Raft Internal Service")
+      .build(internalService)
+
+    raftServer
+  }
 }
 
 /**
@@ -40,7 +73,7 @@ private[internal] object RaftServer {
  * @param peers the list of all peers in the system, including itself
  * @param stateMachine the state machine that is used to execute commands.
  */
-class RaftServer(self: Peer, peers: Map[Int, Peer], stateMachine: StateMachine) extends LazyLogging {
+class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateMachine) extends LazyLogging {
 
   private final val DEBUG_INCREASE = 1
 
@@ -162,11 +195,7 @@ class RaftServer(self: Peer, peers: Map[Int, Peer], stateMachine: StateMachine) 
     (bottomIndex to index).foreach { i =>
       logger.info(s"applying log entry #$i")
       log.get(i).cmd match {
-        case Left(cmd) => try {
-          stateMachine.applyLog(stateMachine.parser.deserialize(cmd))
-        } catch {
-          case ex: Exception => logger.error("ERROR while applying the log to the state machine")
-        }
+        case Left(cmd) => stateMachine.process(stateMachine.parser.deserialize(cmd))
         case Right(config) => throw new NotImplementedError("configuration change not implemented yet")
       }
     }
@@ -251,31 +280,22 @@ class RaftServer(self: Peer, peers: Map[Int, Peer], stateMachine: StateMachine) 
       }
   }
 
-
-
-  /**
-   * Log replication (5.3)
-   * @param command the command to run through the system
-   * @return Left: the address of the leader to talk to
-   *         Right: the future for the completion of the request
-   */
-  def submitCommand(command: Command): Either[String, Future[Result]] = {
-    logger.debug(s"got command $command")
+  def submit(command: Command): SubmitResult = this.synchronized {
     if (!getLeaderId().contains(self.id)) {
-      logger.debug(s"leader id: ${getLeaderId()}")
-      Left(peers(getLeaderId().get).address)
+      NotLeaderResult(peers(getLeaderId().get).address)
     } else {
-      val index = log.lastOption.map(_.index + 1).getOrElse(0)
+      val index = log.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
       val logEntry = LogEntry(currentTerm.get, index, Left(stateMachine.parser.serialize(command)))
       logger.debug(s"log entry: $logEntry")
       // If command received from client: append entry to local log, respond after
       // entry applied to state machine
       appendLog(logEntry)
 
-      Right(Future.collect(peers.values.map(appendRequest).toList).map { _ =>
-        setCommitIndex(index)
-        stateMachine.applyLog(command)
+      SuccessResult(Future.collect(peers.values.map(appendRequest).toList).map { _ =>
+        setCommitIndex(index - 1) // runs all previous commands
+        stateMachine.process(command)
       })
+
     }
   }
 

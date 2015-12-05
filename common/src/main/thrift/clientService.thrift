@@ -61,9 +61,13 @@ exception NotLeader {
     1: required string leaderAddress;
 }
 
+exception AlreadySeen {
+    1: required i32 highest;
+}
+
 service ClientOperations {
-    GetResponse get(1: GetRequest get) throws (1: NotLeader notLeader);
-    PutResponse put(1: PutRequest put) throws (1: NotLeader notLeader);
-    DeleteResponse delete(1: DeleteRequest delete) throws (1: NotLeader notLeader)
-    CASResponse cas(1: CASRequest cas) throws (1: NotLeader notLeader);
+    GetResponse get(1: GetRequest get) throws (1: NotLeader notLeader, 2: AlreadySeen seen);
+    PutResponse put(1: PutRequest put) throws (1: NotLeader notLeader, 2: AlreadySeen seen);
+    DeleteResponse delete(1: DeleteRequest delete) throws (1: NotLeader notLeader, 2: AlreadySeen seen)
+    CASResponse cas(1: CASRequest cas) throws (1: NotLeader notLeader, 2: AlreadySeen seen);
 }
