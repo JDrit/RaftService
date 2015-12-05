@@ -17,10 +17,8 @@ case class CASResult(override val id: Int, replaced: Boolean) extends OpResult(i
 
 /**
  * Abstract state machine that runs the commands in the Raft algorithm
- * @tparam C the type of the command being run
- * @tparam R the type of results that are returned
  */
-abstract class StateMachine[C <: Command, R <: Result] {
+abstract class StateMachine {
 
   /**
    * This is called with the command that needs to be run on the state machine. It needs to return
@@ -29,22 +27,22 @@ abstract class StateMachine[C <: Command, R <: Result] {
    * @param command the command to be run on the system
    * @return the result of the command
    */
-  def applyLog(command: C): R
+  def applyLog(command: Command): Result
 
 
   /**
    * The state machine needs to define the message serializer for the type of
    * commands that it uses
    */
-  val parser: MessageSerializer[C]
+  val parser: MessageSerializer[Command]
 
 }
 
-class MemoryStateMachine extends StateMachine[Operation, OpResult] {
+class MemoryStateMachine extends StateMachine {
   private val storage = mutable.Map.empty[String, String]
   private val lock = new Object()
 
-  override def applyLog(cmd: Operation): OpResult = lock.synchronized(cmd match {
+  override def applyLog(cmd: Command): OpResult = lock.synchronized(cmd match {
     case Get(id, key) => GetResult(id, storage.get(key))
     case Put(id, key, value) =>
       val replaced = storage.contains(key)
@@ -56,15 +54,15 @@ class MemoryStateMachine extends StateMachine[Operation, OpResult] {
       else CASResult(id, false)
   })
 
-  val parser = new MessageSerializer[Operation] {
-    def serialize(command: Operation): String = command match {
+  val parser = new MessageSerializer[Command] {
+    def serialize(command: Command): String = command match {
       case Get(id, key) => s"get:$id:$key"
       case Put(id, key, value) => s"put:$id:$key:$value"
       case Delete(id, key) => s"delete:$id:$key"
       case CAS(id, key, current, newVal) => s"cas:$id:$key:$current:$newVal"
     }
 
-    def deserialize(str: String): Operation = {
+    def deserialize(str: String): Command = {
       val split = str.split(":")
       split(0) match {
         case "get" => Get(split(1).toInt, split(2))

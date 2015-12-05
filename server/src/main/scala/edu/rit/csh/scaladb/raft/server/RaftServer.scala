@@ -39,11 +39,8 @@ object RaftServer {
  * @param self the peer that stores the information about this given server
  * @param peers the list of all peers in the system, including itself
  * @param stateMachine the state machine that is used to execute commands.
- * @tparam C the type of the command being sent
- * @tparam R the type of the result being sent
  */
-class RaftServer[C <: Command, R <: Result](self: Peer, peers: Map[Int, Peer], stateMachine: StateMachine[C, R])
-  extends LazyLogging {
+class RaftServer(self: Peer, peers: Map[Int, Peer], stateMachine: StateMachine) extends LazyLogging {
 
   private final val DEBUG_INCREASE = 1
 
@@ -262,7 +259,7 @@ class RaftServer[C <: Command, R <: Result](self: Peer, peers: Map[Int, Peer], s
    * @return Left: the address of the leader to talk to
    *         Right: the future for the completion of the request
    */
-  def submitCommand[Op <: C, Res <: R](command: Op): Either[String, Future[Res]] = {
+  def submitCommand(command: Command): Either[String, Future[Result]] = {
     logger.debug(s"got command $command")
     if (!getLeaderId().contains(self.id)) {
       logger.debug(s"leader id: ${getLeaderId()}")
@@ -277,7 +274,7 @@ class RaftServer[C <: Command, R <: Result](self: Peer, peers: Map[Int, Peer], s
 
       Right(Future.collect(peers.values.map(appendRequest).toList).map { _ =>
         setCommitIndex(index)
-        stateMachine.applyLog(command).asInstanceOf[Res]
+        stateMachine.applyLog(command)
       })
     }
   }

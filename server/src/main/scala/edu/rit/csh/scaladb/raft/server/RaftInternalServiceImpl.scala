@@ -10,12 +10,8 @@ import MessageConverters._
  * in the cluster. It only implements the necessary endpoints for inter-node communication and
  * does nothing in regard to client operations
  * @param serverState the class used to get the start of the Raft server
- * @tparam C the type of commands being processed by the Raft cluster
- * @tparam R the type of the responses being returned by the Raft cluster
  */
-class RaftInternalServiceImpl[C <: Command, R <: Result](serverState: RaftServer[C, R])
-  extends RaftService.FutureIface with LazyLogging {
-
+class RaftInternalServiceImpl(serverState: RaftServer) extends RaftService.FutureIface with LazyLogging {
 
   /**
    * The endpoint called when other nodes want this node to vote for it during leader

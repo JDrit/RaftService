@@ -16,8 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
  * updates the state machine
  * @param raftServer the raft server to send requests to
  */
-class RaftClientServiceImpl(raftServer: RaftServer[Operation, OpResult])
-  extends ClientOperations.FutureIface with LazyLogging {
+class RaftClientServiceImpl(raftServer: RaftServer) extends ClientOperations.FutureIface with LazyLogging {
 
   /**
    * clients assign unique serial numbers to every command. Then, the state machine tracks
@@ -27,9 +26,9 @@ class RaftClientServiceImpl(raftServer: RaftServer[Operation, OpResult])
    *
    * Each request type has a different cache
    */
-  private val cache = new ConcurrentHashMap[ClassTag[_ <: OpResult], ClientCache]().asScala
+  private val cache = new ConcurrentHashMap[ClassTag[_ <: Result], ClientCache]().asScala
 
-  private def process[R <: OpResult: ClassTag](client: String, id: Int, fun: () => Either[String, Future[R]]): Future[R] = {
+  private def process[R <: Result: ClassTag](client: String, id: Int, fun: () => Either[String, Future[R]]): Future[R] = {
     val functionCache = cache.getOrElseUpdate(classTag[R], new ClientCache(100))
     functionCache.get(client, id) match {
       case Some(result) => Future.value(result.asInstanceOf[R])
@@ -49,22 +48,22 @@ class RaftClientServiceImpl(raftServer: RaftServer[Operation, OpResult])
 
   @throws[NotLeader]
   def get(get: GetRequest): Future[GetResponse] = process(get.clientId, get.commandId, { () =>
-    raftServer.submitCommand[Get, GetResult](Get(get.commandId, get.key))
-  }).map(result => GetResponse(result.value))
+    raftServer.submitCommand(Get(get.commandId, get.key))
+  }).map(result => GetResponse(result.asInstanceOf[GetResult].value))
 
   @throws[NotLeader]
   def put(put: PutRequest): Future[PutResponse] = process(put.clientId, put.commandId, { () =>
-    raftServer.submitCommand[Put, PutResult](Put(put.commandId, put.key, put.value))
-  }).map(result => PutResponse(result.overrided))
+    raftServer.submitCommand(Put(put.commandId, put.key, put.value))
+  }).map(result => PutResponse(result.asInstanceOf[PutResult].overrided))
 
   @throws[NotLeader]
   def cas(cas: CASRequest): Future[CASResponse] = process(cas.clientId, cas.commandId, { () =>
-    raftServer.submitCommand[CAS, CASResult](CAS(cas.commandId, cas.key, cas.curValue, cas.newValue))
-  }).map(result => CASResponse(result.replaced))
+    raftServer.submitCommand(CAS(cas.commandId, cas.key, cas.curValue, cas.newValue))
+  }).map(result => CASResponse(result.asInstanceOf[CASResult].replaced))
 
   @throws[NotLeader]
   def delete(delete: DeleteRequest): Future[DeleteResponse] = process(delete.clientId, delete.commandId, { () =>
-    raftServer.submitCommand[Delete, DeleteResult](Delete(delete.commandId, delete.key))
-  }).map(result => DeleteResponse(result.deleted))
+    raftServer.submitCommand(Delete(delete.commandId, delete.key))
+  }).map(result => DeleteResponse(result.asInstanceOf[DeleteResult].deleted))
 
 }
