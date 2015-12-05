@@ -1,7 +1,7 @@
 package edu.rit.csh.scaladb.raft.server.util
 
 import com.twitter.util.LruMap
-import edu.rit.csh.scaladb.raft.server.Result
+import edu.rit.csh.scaladb.raft.server.internal.Result
 
 /**
  * Uses nested LRU caches per clients to keep track of already processed requests

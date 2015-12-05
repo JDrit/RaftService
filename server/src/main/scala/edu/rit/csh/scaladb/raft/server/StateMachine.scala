@@ -1,19 +1,19 @@
 package edu.rit.csh.scaladb.raft.server
 
 
+import edu.rit.csh.scaladb.raft.server.internal.{MessageSerializer, Result, Command}
+
 import scala.collection.mutable
 
-abstract class Operation(val id: Int) extends Command(id)
-case class Get(override val id: Int, key: String) extends Operation(id)
-case class Put(override val id: Int, key: String, value: String) extends Operation(id)
-case class Delete(override val id: Int, key: String) extends Operation(id)
-case class CAS(override val id: Int, key: String, current: String, newVal: String) extends Operation(id)
+case class Get(id: Int, key: String) extends Command(id)
+case class Put(id: Int, key: String, value: String) extends Command(id)
+case class Delete(id: Int, key: String) extends Command(id)
+case class CAS(id: Int, key: String, current: String, newVal: String) extends Command(id)
 
-abstract class OpResult(val id: Int) extends Result(id)
-case class GetResult(override val id: Int, value: Option[String]) extends OpResult(id)
-case class PutResult(override val id: Int, overrided: Boolean) extends OpResult(id)
-case class DeleteResult(override val id: Int, deleted: Boolean) extends OpResult(id)
-case class CASResult(override val id: Int, replaced: Boolean) extends OpResult(id)
+case class GetResult(id: Int, value: Option[String]) extends Result(id)
+case class PutResult(id: Int, overrided: Boolean) extends Result(id)
+case class DeleteResult(id: Int, deleted: Boolean) extends Result(id)
+case class CASResult(id: Int, replaced: Boolean) extends Result(id)
 
 /**
  * Abstract state machine that runs the commands in the Raft algorithm
@@ -42,7 +42,7 @@ class MemoryStateMachine extends StateMachine {
   private val storage = mutable.Map.empty[String, String]
   private val lock = new Object()
 
-  override def applyLog(cmd: Command): OpResult = lock.synchronized(cmd match {
+  override def applyLog(cmd: Command): Result = lock.synchronized(cmd match {
     case Get(id, key) => GetResult(id, storage.get(key))
     case Put(id, key, value) =>
       val replaced = storage.contains(key)

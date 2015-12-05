@@ -1,26 +1,22 @@
-package edu.rit.csh.scaladb.raft.server
+package edu.rit.csh.scaladb.raft.server.internal
 
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicInteger
 
 import com.twitter.conversions.time._
-import com.twitter.finagle.{Service, Thrift}
+import com.twitter.finagle.Service
 import com.twitter.finagle.builder.ClientBuilder
-import com.twitter.finagle.filter.MaskCancelFilter
-import com.twitter.finagle.service.{TimeoutFilter, RetryPolicy, RetryExceptionsFilter}
-import com.twitter.finagle.thrift.{ThriftClientRequest, ThriftClientFramedCodec, ThriftServerFramedCodec}
-import com.twitter.finagle.util.DefaultTimer
+import com.twitter.finagle.thrift.{ThriftClientFramedCodec, ThriftClientRequest}
 import com.twitter.util.Future
-
-import State.State
+import edu.rit.csh.scaladb.raft.server.internal.State.State
 import org.apache.thrift.protocol.TBinaryProtocol
 
-object ServerType extends Enumeration {
+private[internal] object ServerType extends Enumeration {
   type ServerType = Value
   val Follower, Leader, Candidate = Value
 }
 
-object State extends Enumeration {
+private[internal] object State extends Enumeration {
   type State = Value
   val cOld, cOldNew = Value
 }
@@ -85,7 +81,7 @@ class Peer(val id: Int, val inetAddress: InetSocketAddress) {
  * @param cOldPeers the list of old servers
  * @param cNewPeers the list of new servers
  */
-case class RaftConfiguration(state: State, cOldPeers: Array[Peer], cNewPeers: Array[Peer]) {
+private[internal] case class RaftConfiguration(state: State, cOldPeers: Array[Peer], cNewPeers: Array[Peer]) {
 
   override def toString: String =
     s"""configuration {
@@ -127,7 +123,7 @@ trait MessageSerializer[C <: Command] {
  * @param index the global index in the log of this entry
  * @param cmd the command or configuration change of this server
  */
-case class LogEntry(term: Int, index: Int, cmd: Either[String, Configuration]) {
+private[internal] case class LogEntry(term: Int, index: Int, cmd: Either[String, Configuration]) {
 
   override def toString: String =
     s"""entry {
@@ -137,8 +133,7 @@ case class LogEntry(term: Int, index: Int, cmd: Either[String, Configuration]) {
        |}""".stripMargin
 }
 
-object MessageConverters {
-
+private[internal] object MessageConverters {
 
   def thriftToLogEntry(entry: Entry): LogEntry = (entry.command, entry.configuration) match {
     case (Some(cmd), None) => LogEntry(entry.term, entry.index, Left(cmd))

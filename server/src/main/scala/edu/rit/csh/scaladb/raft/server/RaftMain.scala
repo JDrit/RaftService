@@ -5,8 +5,9 @@ import java.net.InetSocketAddress
 import com.twitter.finagle.builder.ServerBuilder
 import com.twitter.finagle.thrift.ThriftServerFramedCodec
 import com.typesafe.scalalogging.LazyLogging
-import edu.rit.csh.scaladb.raft.server.RaftService.{FinagledService => InternalService}
 import edu.rit.csh.scaladb.raft.client.ClientOperations.{FinagledService => ClientService}
+import edu.rit.csh.scaladb.raft.server.internal.RaftService.{FinagledService => InternalService}
+import edu.rit.csh.scaladb.raft.server.internal.{RaftServer, Peer, RaftInternalServiceImpl}
 import edu.rit.csh.scaladb.raft.server.util.ParserUtils
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
 

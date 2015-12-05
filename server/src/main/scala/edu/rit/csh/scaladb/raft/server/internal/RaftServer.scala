@@ -1,11 +1,11 @@
-package edu.rit.csh.scaladb.raft.server
+package edu.rit.csh.scaladb.raft.server.internal
 
+import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
 
 import com.twitter.conversions.time._
 import com.twitter.util._
 import com.typesafe.scalalogging.LazyLogging
-
-import java.util.concurrent.atomic.{AtomicInteger, AtomicReference, AtomicLong}
+import edu.rit.csh.scaladb.raft.server.StateMachine
 import edu.rit.csh.scaladb.raft.server.util.Scala2Java8._
 
 import scala.collection.JavaConversions._
@@ -28,7 +28,7 @@ import scala.util.Random
 //     '------------------------------------------------------------------'
 //
 
-object RaftServer {
+private[internal] object RaftServer {
   final val BASE_INDEX: Int = -1
 }
 
@@ -116,41 +116,41 @@ class RaftServer(self: Peer, peers: Map[Int, Peer], stateMachine: StateMachine) 
     }
   }).start()
 
-  def getCurrentTerm(): Int = currentTerm.get
+  private[internal] def getCurrentTerm(): Int = currentTerm.get
 
   /**
    * Updates the current term if the given value is larger than the current value.
    * The updated value is returned
    */
-  def getCurrentTerm(term: Int): Int = currentTerm
+  private[internal] def getCurrentTerm(term: Int): Int = currentTerm
     .updateAndGet((value: Int) => if (value < term) term else value)
 
-  def incrementTerm(): Int = currentTerm.incrementAndGet
+  private def incrementTerm(): Int = currentTerm.incrementAndGet
 
-  def setTerm(term: Int): Unit = currentTerm.set(term)
+  private[internal] def setTerm(term: Int): Unit = currentTerm.set(term)
 
-  def getVotedFor(): Option[Int] = votedFor.get
+  private[internal] def getVotedFor(): Option[Int] = votedFor.get
 
-  def setVotedFor(id: Int): Unit = votedFor.set(Some(id))
+  private[internal] def setVotedFor(id: Int): Unit = votedFor.set(Some(id))
 
-  def clearVotedFor(): Unit = votedFor.set(None)
+  private def clearVotedFor(): Unit = votedFor.set(None)
 
-  def getCommitIndex(): Int = commitIndex.get
+  private[internal] def getCommitIndex(): Int = commitIndex.get
 
-  def toFollower(): Unit = status.set(ServerType.Follower)
+  private[internal] def toFollower(): Unit = status.set(ServerType.Follower)
 
-  def getLeaderId(): Option[Int] = leaderId.get()
+  private[internal] def getLeaderId(): Option[Int] = leaderId.get()
 
-  def setLeaderId(id: Int): Unit = leaderId.set(Some(id))
+  private[internal] def setLeaderId(id: Int): Unit = leaderId.set(Some(id))
 
-  def clearLeaderId(): Unit = leaderId.set(None)
+  private def clearLeaderId(): Unit = leaderId.set(None)
 
   /**
    * Updates the commit index, applying all entries in the log up to, and including,
    * the index given
    * @param index the new commit index for this server
    */
-  def setCommitIndex(index: Int): Unit = {
+  private[internal] def setCommitIndex(index: Int): Unit = {
     val bottomIndex = commitIndex.get() + 1
     commitIndex.set(index)
     // If commitIndex > lastApplied: increment lastApplied, apply
@@ -159,7 +159,7 @@ class RaftServer(self: Peer, peers: Map[Int, Peer], stateMachine: StateMachine) 
       lastApplied.set(commitIndex.get())
     }
 
-    for (i <- bottomIndex to index) {
+    (bottomIndex to index).foreach { i =>
       logger.info(s"applying log entry #$i")
       log.get(i).cmd match {
         case Left(cmd) => try {
@@ -172,7 +172,7 @@ class RaftServer(self: Peer, peers: Map[Int, Peer], stateMachine: StateMachine) 
     }
   }
 
-  def getLogEntry: Int => Option[LogEntry] = log.lift
+  private[internal] def getLogEntry: Int => Option[LogEntry] = log.lift
 
   /**
    * While waiting for votes, a candidate may receive an  AppendEntries RPC from another server
@@ -181,7 +181,7 @@ class RaftServer(self: Peer, peers: Map[Int, Peer], stateMachine: StateMachine) 
    * and returns to follower state. If the term in the RPC is smaller than the candidate’s
    * current term, then the candidate rejects the RPC and continues in candidate state
    */
-  def setHeartbeat(term: Int): Unit = {
+  private[internal] def setHeartbeat(term: Int): Unit = {
     if (status.get() == ServerType.Candidate) {
       if (term >= currentTerm.get()) {
         status.set(ServerType.Follower)
@@ -216,7 +216,7 @@ class RaftServer(self: Peer, peers: Map[Int, Peer], stateMachine: StateMachine) 
    * If an existing entry conflicts with a new one (same index but different terms),
    * delete the existing entry and all that follow it (§5.3)
    */
-  def appendLog(entry: LogEntry): Unit = log.lift(entry.index)
+  private[internal] def appendLog(entry: LogEntry): Unit = log.lift(entry.index)
     .map(_ => log.set(entry.index, entry))
     .getOrElse(log += entry)
 

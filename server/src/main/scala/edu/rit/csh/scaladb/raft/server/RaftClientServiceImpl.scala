@@ -3,6 +3,7 @@ package edu.rit.csh.scaladb.raft.server
 import com.twitter.util.Future
 import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.client._
+import edu.rit.csh.scaladb.raft.server.internal.{RaftServer, Result}
 import edu.rit.csh.scaladb.raft.server.util.ClientCache
 
 import scala.collection.convert.decorateAsScala._

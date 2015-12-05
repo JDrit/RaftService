@@ -1,9 +1,9 @@
-package edu.rit.csh.scaladb.raft.server
+package edu.rit.csh.scaladb.raft.server.internal
 
 import com.twitter.util.Future
 import com.typesafe.scalalogging.LazyLogging
-
 import MessageConverters._
+import edu.rit.csh.scaladb.raft.server.internal.RaftService.FutureIface
 
 /**
  * This is the Thrift Finagle service that is used to communicate between the different nodes
@@ -11,7 +11,7 @@ import MessageConverters._
  * does nothing in regard to client operations
  * @param serverState the class used to get the start of the Raft server
  */
-class RaftInternalServiceImpl(serverState: RaftServer) extends RaftService.FutureIface with LazyLogging {
+class RaftInternalServiceImpl(serverState: RaftServer) extends FutureIface with LazyLogging {
 
   /**
    * The endpoint called when other nodes want this node to vote for it during leader

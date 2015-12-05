@@ -1,4 +1,4 @@
-package edu.rit.csh.scaladb.raft.server
+package edu.rit.csh.scaladb.raft.server.internal
 
 import com.typesafe.scalalogging.LazyLogging
 
@@ -10,7 +10,7 @@ import scala.reflect.ClassTag
  * Class representing the replicated log. This is used to store all the logs that have been
  * replicated in the system. It is thread-safe. Only appending and updating of logs.
  */
-class Log[T: ClassTag] extends mutable.AbstractBuffer[T] with LazyLogging {
+private[internal] class Log[T: ClassTag] extends mutable.AbstractBuffer[T] with LazyLogging {
 
   private val log = new java.util.ArrayList[T]()
   private val lock = new Object()
