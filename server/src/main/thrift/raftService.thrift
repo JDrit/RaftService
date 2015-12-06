@@ -54,12 +54,12 @@ struct AppendEntries {
     6: required i32 leaderCommit;     // leader’s commitIndex
 }
 
-struct AppendResponse {
+struct AppendEntriesResponse {
     1: required Term term;     // currentTerm, for leader to update itself
     2: required bool success;  // true if follower contained entry matching prevLogIndex and prevLogTerm
 }
 
 service RaftService {
     VoteResponse vote(1: RequestVote request);
-    AppendResponse append(2: AppendEntries entries);
+    AppendEntriesResponse append(2: AppendEntries entries);
 }

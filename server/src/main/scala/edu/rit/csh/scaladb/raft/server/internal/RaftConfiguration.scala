@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import com.twitter.conversions.time._
 import com.twitter.finagle.Service
 import com.twitter.finagle.builder.ClientBuilder
+import com.twitter.finagle.filter.MaskCancelFilter
 import com.twitter.finagle.thrift.{ThriftClientFramedCodec, ThriftClientRequest}
 import com.twitter.util.Future
 import edu.rit.csh.scaladb.raft.server.internal.State.State
@@ -34,13 +35,13 @@ private[internal] class Peer(val id: Int, val inetAddress: InetSocketAddress) {
     .codec(ThriftClientFramedCodec())
     .hosts(address)
     .timeout(3.seconds)
-    .hostConnectionLimit(100)
-    .tcpConnectTimeout(1.second)
+    .hostConnectionLimit(1000)
+    .tcpConnectTimeout(2.second)
     .retries(3)
     .failFast(false)
     .build()
 
-  private val client = new RaftService.FinagledClient(service, new TBinaryProtocol.Factory())
+  private val client = new RaftService.FinagledClient(new MaskCancelFilter andThen service, new TBinaryProtocol.Factory())
 
   // index of the next log entry to send to that server (initialized to
   // leader last log index + 1)
@@ -51,7 +52,7 @@ private[internal] class Peer(val id: Int, val inetAddress: InetSocketAddress) {
 
   val voteClient: RequestVote => Future[VoteResponse] = client.vote
 
-  val appendClient: AppendEntries => Future[AppendResponse] = client.append
+  val appendClient: AppendEntries => Future[AppendEntriesResponse] = client.append
 
   val getNextIndex: () => Int = nextIndex.get
 

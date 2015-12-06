@@ -1,6 +1,6 @@
 package edu.rit.csh.scaladb.raft.server.internal
 
-import java.net.{InetSocketAddress, InetAddress}
+import java.net.InetSocketAddress
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
 
 import com.twitter.conversions.time._
@@ -9,7 +9,6 @@ import com.twitter.finagle.thrift.ThriftServerFramedCodec
 import com.twitter.util._
 import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.server.internal.RaftService.FinagledService
-import edu.rit.csh.scaladb.raft.server.internal.StateMachine
 import edu.rit.csh.scaladb.raft.server.util.Scala2Java8._
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
 
@@ -174,6 +173,8 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
 
   private[internal] def getLeaderId(): Option[Int] = leaderId.get()
 
+  private[internal] def isLeader(): Boolean = leaderId.get().contains(self.id)
+
   private[internal] def setLeaderId(id: Int): Unit = leaderId.set(Some(id))
 
   private def clearLeaderId(): Unit = leaderId.set(None)
@@ -183,7 +184,8 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
    * the index given
    * @param index the new commit index for this server
    */
-  private[internal] def setCommitIndex(index: Int): Unit = {
+  private[internal] def setCommitIndex(index: Int): Option[Either[Int, Result]] = this.synchronized {
+    logger.debug(s"setting commit index to $index")
     val bottomIndex = commitIndex.get() + 1
     commitIndex.set(index)
     // If commitIndex > lastApplied: increment lastApplied, apply
@@ -192,16 +194,20 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
       lastApplied.set(commitIndex.get())
     }
 
-    (bottomIndex to index).foreach { i =>
+    var result: Option[Either[Int, Result]] = None
+    for (i <- bottomIndex to index) {
       logger.info(s"applying log entry #$i")
       log.get(i).cmd match {
-        case Left(cmd) => stateMachine.process(stateMachine.parser.deserialize(cmd))
-        case Right(config) => throw new NotImplementedError("configuration change not implemented yet")
+        case Left(cmd) => result = Some(stateMachine.process(stateMachine.parser.deserialize(cmd)))
+        case Right(config) =>
+          result = None
+          throw new NotImplementedError("configuration change not implemented yet")
       }
     }
+    result
   }
 
-  private[internal] def getLogEntry: Int => Option[LogEntry] = log.lift
+  private[internal] def getLogEntry(index: Int): Option[LogEntry] = log.lift(index)
 
   /**
    * While waiting for votes, a candidate may receive an  AppendEntries RPC from another server
@@ -257,11 +263,10 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
    * @param peer the peer to send the message to
    * @return a future for the successful response to the request
    */
-  private def appendRequest(peer: Peer): Future[AppendResponse] = {
+  private def appendRequest(peer: Peer): Future[AppendEntriesResponse] = {
     val prevLogIndex = peer.getNextIndex() - 1 // index of log entry immediately preceding new ones
     val prevLogTerm = log.lift(prevLogIndex).map(_.term).getOrElse(RaftServer.BASE_INDEX) // term of prevLogIndex entry
     val entries = log.range(peer.getNextIndex(), log.length).map(MessageConverters.logEntryToThrift)
-    logger.debug(s"log entries being sent: ${entries.mkString(", ")} ")
     val request = AppendEntries(currentTerm.get, self.id, prevLogIndex, prevLogTerm, entries, commitIndex.get)
     peer.appendClient(request)
       .onSuccess { response =>
@@ -276,10 +281,19 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
         }
       }.rescue { case ex =>
         logger.debug(s"exception occurred while sending an append request to ${peer.address}\n$ex")
-        Future { AppendResponse(getCommitIndex(), false) }
+        Future { AppendEntriesResponse(getCommitIndex(), false) }
       }
   }
 
+  /**
+   * Submits a command to be processed by the replicated state machine. This takes the command,
+   * and if this node is the leader, returns a future for the completion of the task. This
+   * has to be synchronized to make sure that log entries are added correctly. If the future
+   * returns a result, then it is guaranteed to be committed and to be seen by every following
+   * command.
+   * @param command the command to run on the replicated state machine
+   * @return the future with the result of the computation.
+   */
   def submit(command: Command): SubmitResult = this.synchronized {
     if (!getLeaderId().contains(self.id)) {
       NotLeaderResult(peers(getLeaderId().get).address)
@@ -292,10 +306,8 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
       appendLog(logEntry)
 
       SuccessResult(Future.collect(peers.values.map(appendRequest).toList).map { _ =>
-        setCommitIndex(index - 1) // runs all previous commands
-        stateMachine.process(command)
+        setCommitIndex(index).get
       })
-
     }
   }
 

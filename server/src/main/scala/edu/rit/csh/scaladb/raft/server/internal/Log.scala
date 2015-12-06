@@ -23,7 +23,6 @@ private[internal] class Log[T: ClassTag] extends mutable.AbstractBuffer[T] with 
    * @return the sequence of the range
    */
   def range(start: Int, end: Int): Seq[T] = lock.synchronized {
-    logger.debug(s"get range of $start - $end, size: ${log.length}")
     (start until end).map { index => log.get(index) }
   }
 

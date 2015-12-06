@@ -29,13 +29,26 @@ object Client {
     val address = args(0)
     val thrift = Thrift.newIface[ClientOperations.FutureIface](address)
     val clientID = "test"
-    val commandID = args(1).toInt
+    val key = "jd"
 
-    val response = args(2) match {
-      case "get" => thrift.get(GetRequest(clientID, commandID, args(3)))
-      case "put" => thrift.put(PutRequest(clientID, commandID, args(3), args(4)))
-      case "delete" => thrift.delete(DeleteRequest(clientID, commandID, args(3)))
-      case "cas" => thrift.cas(CASRequest(clientID, commandID, args(3), args(4), args(5)))
+    val response = args(1) match {
+      case "get" => thrift.get(GetRequest(clientID, args(2).toInt, args(3)))
+      case "put" => thrift.put(PutRequest(clientID, args(2).toInt, args(3), args(4)))
+      case "delete" => thrift.delete(DeleteRequest(clientID, args(2).toInt, args(3)))
+      case "cas" => thrift.cas(CASRequest(clientID, args(2).toInt, args(3), args(4), args(5)))
+      case "stress" =>
+        println(Await.result(thrift.put(PutRequest(clientID, 0, key, "0"))))
+        val futures = Future.collect((1 to 100).map { commandID =>
+          try {
+            thrift.append(AppendRequest(clientID, commandID, key, s"-$commandID"))
+          } catch {
+            case ex: AlreadySeen =>
+              println(s"$commandID - ${ex.highest}")
+              Future.value(AppendResponse(Some("")))
+          }
+        }.toList)
+        Await.result(futures)
+        thrift.get(GetRequest(clientID, 101, key))
     }
 
     try {

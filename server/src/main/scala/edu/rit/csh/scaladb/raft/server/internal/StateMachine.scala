@@ -42,12 +42,11 @@ abstract class StateMachine extends LazyLogging {
    *         this client seen so far
    */
   private[internal] final def process(command: Command): Either[Int, Result] = {
-    logger.debug(s"processing command $command")
     val last = seen.getOrElse(command.client, -1)
-    logger.debug(s"last = $last")
     if (last >= command.id) {
       Left(last)
     } else {
+      logger.debug(s"processing command $command")
       seen.put(command.client, command.id)
       Right(compute(command))
     }

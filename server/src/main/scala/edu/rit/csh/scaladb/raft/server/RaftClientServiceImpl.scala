@@ -22,23 +22,30 @@ class RaftClientServiceImpl(raftServer: RaftServer) extends ClientOperations.Fut
 
   @throws[NotLeader]
   @throws[AlreadySeen]
-  def get(get: GetRequest): Future[GetResponse] = process(Get(get.clientId, get.commandId, get.key),
-    { result => GetResponse(result.asInstanceOf[GetResult].value) })
+  override def get(get: GetRequest): Future[GetResponse] = process(Get(get.clientId, get.commandId,
+    get.key), { result => GetResponse(result.asInstanceOf[GetResult].value) })
 
   @throws[NotLeader]
   @throws[AlreadySeen]
-  def put(put: PutRequest): Future[PutResponse] = process(Put(put.clientId, put.commandId, put.key,
-    put.value), { result => PutResponse(result.asInstanceOf[PutResult].overrided) })
+  override def put(put: PutRequest): Future[PutResponse] = process(Put(put.clientId, put.commandId,
+    put.key, put.value), { result => PutResponse(result.asInstanceOf[PutResult].overrided) })
 
   @throws[NotLeader]
   @throws[AlreadySeen]
-  def cas(cas: CASRequest): Future[CASResponse] = process(CAS(cas.clientId, cas.commandId, cas.key,
-    cas.curValue, cas.newValue), { result => CASResponse(cas.asInstanceOf[CASResult].replaced) })
+  override  def cas(cas: CASRequest): Future[CASResponse] = process(CAS(cas.clientId, cas.commandId,
+    cas.key, cas.curValue, cas.newValue), { result => CASResponse(cas.asInstanceOf[CASResult].replaced) })
 
   @throws[NotLeader]
   @throws[AlreadySeen]
-  def delete(delete: DeleteRequest): Future[DeleteResponse] = process(Delete(delete.clientId,
+  override def delete(delete: DeleteRequest): Future[DeleteResponse] = process(Delete(delete.clientId,
     delete.commandId, delete.key), { result =>
       DeleteResponse(result.asInstanceOf[DeleteResult].deleted)
+    })
+
+  @throws[NotLeader]
+  @throws[AlreadySeen]
+  override def append(append: AppendRequest): Future[AppendResponse] = process(
+    Append(append.clientId, append.commandId, append.key, append.value), { result =>
+      AppendResponse(result.asInstanceOf[AppendResult].newValue)
     })
 }

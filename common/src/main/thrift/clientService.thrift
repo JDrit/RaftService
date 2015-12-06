@@ -57,6 +57,17 @@ struct DeleteResponse {
     1: required bool deleted;
 }
 
+struct AppendRequest {
+    1: required clientID clientId;
+    2: required ID commandId;
+    3: required string key;
+    4: required string value
+}
+
+struct AppendResponse {
+    1: optional string value;
+}
+
 exception NotLeader {
     1: required string leaderAddress;
 }
@@ -70,4 +81,5 @@ service ClientOperations {
     PutResponse put(1: PutRequest put) throws (1: NotLeader notLeader, 2: AlreadySeen seen);
     DeleteResponse delete(1: DeleteRequest delete) throws (1: NotLeader notLeader, 2: AlreadySeen seen)
     CASResponse cas(1: CASRequest cas) throws (1: NotLeader notLeader, 2: AlreadySeen seen);
+    AppendResponse append(1: AppendRequest append) throws (1: NotLeader notLeader, 2: AlreadySeen seen);
 }
