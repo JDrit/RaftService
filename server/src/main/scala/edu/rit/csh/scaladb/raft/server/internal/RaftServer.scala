@@ -1,6 +1,7 @@
 package edu.rit.csh.scaladb.raft.server.internal
 
 import java.net.InetSocketAddress
+import java.util.concurrent.{ConcurrentHashMap, ConcurrentLinkedQueue}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
 
 import com.twitter.conversions.time._
@@ -8,6 +9,8 @@ import com.twitter.finagle.builder.ServerBuilder
 import com.twitter.finagle.thrift.ThriftServerFramedCodec
 import com.twitter.util._
 import com.typesafe.scalalogging.LazyLogging
+import edu.rit.csh.scaladb.raft.server.internal.StateMachine.CommandResult
+import edu.rit.csh.scaladb.raft.server.{PutResult, GetResult}
 import edu.rit.csh.scaladb.raft.server.internal.RaftService.FinagledService
 import edu.rit.csh.scaladb.raft.server.util.Scala2Java8._
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
@@ -97,7 +100,7 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
   //
 
   // index of highest log entry known to be committed
-  private val commitIndex = new AtomicInteger(RaftServer.BASE_INDEX)
+  private[internal] val commitIndex = new AtomicInteger(RaftServer.BASE_INDEX)
   // index of highest log entry applied to state machine
   private val lastApplied = new AtomicInteger(RaftServer.BASE_INDEX)
 
@@ -180,30 +183,50 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
   private def clearLeaderId(): Unit = leaderId.set(None)
 
   /**
-   * Updates the commit index, applying all entries in the log up to, and including,
-   * the index given
-   * @param index the new commit index for this server
+   * Keeps track of the outputs of all the commands run. This is a mapping from the log
+   * index ID to the output of the command. Elements need to be removed once they are
+   * returned to the client to make sure OOM do not happen
    */
-  private[internal] def setCommitIndex(index: Int): Option[Either[Int, Result]] = this.synchronized {
-    logger.debug(s"setting commit index to $index")
-    val bottomIndex = commitIndex.get() + 1
-    commitIndex.set(index)
-    // If commitIndex > lastApplied: increment lastApplied, apply
-    // log[lastApplied] to state machine (§5.3)
-    if (commitIndex.get() > lastApplied.get()) {
-      lastApplied.set(commitIndex.get())
-    }
+  private val results = new ConcurrentHashMap[Int, CommandResult]()
 
-    var result: Option[Either[Int, Result]] = None
-    for (i <- bottomIndex to index) {
-      logger.info(s"applying log entry #$i")
-      log.get(i).cmd match {
-        case Left(cmd) => result = Some(stateMachine.process(stateMachine.parser.deserialize(cmd)))
-        case Right(config) =>
-          result = None
-          throw new NotImplementedError("configuration change not implemented yet")
+  /**
+   * Updates the commit index to the given index, only if it is bigger than the current value.
+   * It then applies all the log elements up to that point. All results are stored so that
+   * they can be returned to the client.
+   * @param index the new index
+   * @return an option of the result of the log at the given index, or None if the commit
+   *         index was not updated
+   */
+  private[internal] def setCommitIndex(index: Int): Option[CommandResult] = this.synchronized {
+    var result: CommandResult = null
+    val old = commitIndex.get()
+    if (old < index) {
+      commitIndex.set(index)
+      logger.debug(s"incrementing commit index: $old - $index")
+
+      (old + 1 to index).foreach { i =>
+        logger.info(s"applying log entry #$i")
+        log.get(i).cmd match {
+          case Left(cmd) =>
+            result = stateMachine.process(stateMachine.parser.deserialize(cmd))
+            results.put(i, result)
+        }
       }
     }
+    Option(result)
+  }
+
+  /**
+   * Gets the result of the log entry at the given position, computing it if necessary.
+   * It makes sure that the command is only computed once by checking to see the cache
+   * of already computed results. It removes the results of the commands from the command
+   * to keep memory usage low
+   * @param index the index to get the result for
+   * @return the result of the command
+   */
+  private def commitLog(index: Int): CommandResult = this.synchronized {
+    val result = setCommitIndex(index).getOrElse(results.get(index))
+    results.remove(index)
     result
   }
 
@@ -237,7 +260,7 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
    * Raft uses randomized election timeouts to ensure that split votes are rare and that
    * they are resolved quickly. To prevent split votes in the first place, election
    * timeouts are chosen randomly from a fixed interval
-   * @return the time till the election should take place
+   * @return the time till the next election should take place
    */
   private def electionTimeout(): Duration = (150 + Random.nextInt(300 - 150 + 1)).milliseconds * DEBUG_INCREASE
 
@@ -271,7 +294,6 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
     peer.appendClient(request)
       .onSuccess { response =>
         if (response.success) {
-          logger.debug(s"received successful update from ${peer.address}, ${entries.last.index + 1}")
           peer.setNextIndex(entries.last.index + 1)
           peer.setMatchIndex(entries.last.index + 1)
         } else {
@@ -295,19 +317,24 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
    * @return the future with the result of the computation.
    */
   def submit(command: Command): SubmitResult = this.synchronized {
-    if (!getLeaderId().contains(self.id)) {
-      NotLeaderResult(peers(getLeaderId().get).address)
-    } else {
-      val index = log.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
-      val logEntry = LogEntry(currentTerm.get, index, Left(stateMachine.parser.serialize(command)))
-      logger.debug(s"log entry: $logEntry")
-      // If command received from client: append entry to local log, respond after
-      // entry applied to state machine
-      appendLog(logEntry)
+    try {
+      if (!getLeaderId().contains(self.id)) {
+        NotLeaderResult(peers(getLeaderId().get).address)
+      } else {
+        val index = log.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
+        val logEntry = LogEntry(currentTerm.get, index, Left(stateMachine.parser.serialize(command)))
+        logger.debug(s"log entry: $logEntry")
+        // If command received from client: append entry to local log, respond after
+        // entry applied to state machine
+        appendLog(logEntry)
 
-      SuccessResult(Future.collect(peers.values.map(appendRequest).toList).map { _ =>
-        setCommitIndex(index).get
-      })
+        SuccessResult(Future.collect(peers.values.map(appendRequest).toList).map(_ => commitLog(index)))
+      }
+    } catch {
+      case ex: Exception =>
+        println("error")
+        ex.printStackTrace()
+        NotLeaderResult(peers(getLeaderId().get).address)
     }
   }
 

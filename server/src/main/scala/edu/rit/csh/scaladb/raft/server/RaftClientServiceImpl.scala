@@ -1,6 +1,6 @@
 package edu.rit.csh.scaladb.raft.server
 
-import com.twitter.util.Future
+import com.twitter.util.{Try, Future}
 import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.client._
 import edu.rit.csh.scaladb.raft.server.internal._
@@ -44,8 +44,14 @@ class RaftClientServiceImpl(raftServer: RaftServer) extends ClientOperations.Fut
 
   @throws[NotLeader]
   @throws[AlreadySeen]
-  override def append(append: AppendRequest): Future[AppendResponse] = process(
+  override def append(append: AppendRequest): Future[AppendResponse] = try {
+    process(
     Append(append.clientId, append.commandId, append.key, append.value), { result =>
       AppendResponse(result.asInstanceOf[AppendResult].newValue)
     })
+  } catch {
+    case ex: Exception =>
+      logger.error("exception", ex)
+      null
+  }
 }

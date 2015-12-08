@@ -1,8 +1,13 @@
 package edu.rit.csh.scaladb.raft.server.internal
 
 import com.typesafe.scalalogging.LazyLogging
+import edu.rit.csh.scaladb.raft.server.internal.StateMachine.CommandResult
 
 import scala.collection.mutable
+
+object StateMachine {
+  type CommandResult = Either[Int, Result]
+}
 
 /**
  * Abstract state machine that runs the commands in the Raft algorithm
@@ -15,7 +20,7 @@ abstract class StateMachine extends LazyLogging {
    * The starting id should be zero and should increment from there, though they do not
    * have to be consecutive increases.
    */
-  private final val seen = mutable.Map.empty[String, Int]
+  private final val seen = mutable.Map.empty[String, mutable.Set[Int]]
   
   /**
    * This is called with the command that needs to be run on the state machine. It needs to return
@@ -41,13 +46,13 @@ abstract class StateMachine extends LazyLogging {
    * @return the result of the command if successful or the highest identifer for
    *         this client seen so far
    */
-  private[internal] final def process(command: Command): Either[Int, Result] = {
-    val last = seen.getOrElse(command.client, -1)
-    if (last >= command.id) {
-      Left(last)
+  private[internal] final def process(command: Command): CommandResult = {
+    val ids = seen.getOrElseUpdate(command.client, mutable.Set.empty)
+    if (ids.contains(command.id)) {
+      Left(command.id)
     } else {
       logger.debug(s"processing command $command")
-      seen.put(command.client, command.id)
+      ids += command.id
       Right(compute(command))
     }
   }

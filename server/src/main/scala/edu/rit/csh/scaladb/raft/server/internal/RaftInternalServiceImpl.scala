@@ -22,7 +22,7 @@ class RaftInternalServiceImpl(serverState: RaftServer) extends FutureIface with 
    * @return the result of this node voting
    */
   override def vote(requestVote: RequestVote): Future[VoteResponse] = Future {
-   lock.synchronized {
+   serverState.synchronized {
      val currentTerm = serverState.getCurrentTerm()
 
      // If RPC request or response contains term T > currentTerm:
@@ -54,7 +54,7 @@ class RaftInternalServiceImpl(serverState: RaftServer) extends FutureIface with 
   }
 
   override def append(entries: AppendEntries): Future[AppendEntriesResponse] = Future {
-    lock.synchronized {
+    serverState.synchronized {
       val currentTerm = serverState.getCurrentTerm(entries.term)
       val commitIndex = serverState.getCommitIndex()
       serverState.setHeartbeat(entries.term)
@@ -64,12 +64,13 @@ class RaftInternalServiceImpl(serverState: RaftServer) extends FutureIface with 
       if (entries.term < currentTerm) {
         AppendEntriesResponse(term = currentTerm, success = false)
         // Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
-      } else if (entries.prevLogIndex > -1 && !serverState.getLogEntry(entries.prevLogIndex).exists(_.term == entries.prevLogTerm)) {
+      } else if (entries.prevLogIndex != -1 &&
+          !serverState.getLogEntry(entries.prevLogIndex).exists(_.term == entries.prevLogTerm)) {
         AppendEntriesResponse(term = currentTerm, success = false)
       } else {
+        entries.entires.map(thriftToLogEntry).foreach(serverState.appendLog)
+        // If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
         if (!serverState.isLeader()) {
-          entries.entires.map(thriftToLogEntry).foreach(serverState.appendLog)
-          // If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
           if (entries.leaderCommit > commitIndex) {
             val newCommit = entries.entires.lastOption
               .map(entry => Math.min(entry.index, entries.leaderCommit))
