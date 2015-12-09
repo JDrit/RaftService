@@ -65,7 +65,7 @@ struct AppendRequest {
 }
 
 struct AppendResponse {
-    1: optional string value;
+    1: required string value;
 }
 
 exception NotLeader {

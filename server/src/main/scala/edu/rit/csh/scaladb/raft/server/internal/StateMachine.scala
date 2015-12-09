@@ -20,7 +20,7 @@ abstract class StateMachine extends LazyLogging {
    * The starting id should be zero and should increment from there, though they do not
    * have to be consecutive increases.
    */
-  private final val seen = mutable.Map.empty[String, mutable.Set[Int]]
+  private final val seen = mutable.Map.empty[String, Int]
   
   /**
    * This is called with the command that needs to be run on the state machine. It needs to return
@@ -47,12 +47,12 @@ abstract class StateMachine extends LazyLogging {
    *         this client seen so far
    */
   private[internal] final def process(command: Command): CommandResult = {
-    val ids = seen.getOrElseUpdate(command.client, mutable.Set.empty)
-    if (ids.contains(command.id)) {
-      Left(command.id)
+    val id = seen.getOrElseUpdate(command.client, -1)
+    if (id >= command.id) {
+      Left(id)
     } else {
       logger.debug(s"processing command $command")
-      ids += command.id
+      seen.put(command.client, command.id)
       Right(compute(command))
     }
   }

@@ -19,7 +19,7 @@ case class GetResult(override val id: Int, value: Option[String]) extends Result
 case class PutResult(override val id: Int, overrided: Boolean) extends Result(id)
 case class DeleteResult(override val id: Int, deleted: Boolean) extends Result(id)
 case class CASResult(override val id: Int, replaced: Boolean) extends Result(id)
-case class AppendResult(override val id: Int, newValue: Option[String]) extends Result(id)
+case class AppendResult(override val id: Int, newValue: String) extends Result(id)
 
 class MemoryStateMachine extends StateMachine {
   private val storage = mutable.Map.empty[String, String]
@@ -38,8 +38,10 @@ class MemoryStateMachine extends StateMachine {
       case Some(curValue) =>
         val newValue = curValue + value
         storage.put(key, newValue)
-        AppendResult(id, Some(newValue))
-      case None => AppendResult(id, None)
+        AppendResult(id, newValue)
+      case None =>
+        storage.put(key, value)
+        AppendResult(id, value)
     }
   }
 

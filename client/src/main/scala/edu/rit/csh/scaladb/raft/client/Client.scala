@@ -37,18 +37,13 @@ object Client {
       case "delete" => thrift.delete(DeleteRequest(clientID, args(2).toInt, args(3)))
       case "cas" => thrift.cas(CASRequest(clientID, args(2).toInt, args(3), args(4), args(5)))
       case "stress" =>
-        println(Await.result(thrift.put(PutRequest(clientID, 0, key, "0"))))
-        val futures = Future.collect((1 to 100).map { commandID =>
-          try {
-            thrift.append(AppendRequest(clientID, commandID, key, s"-$commandID"))
-          } catch {
-            case ex: AlreadySeen =>
-              println(s"$commandID - ${ex.highest}")
-              Future.value(AppendResponse(Some("")))
+        val futures = Future.collect((args(2).toInt to args(2).toInt + 100).map { commandID =>
+          thrift.append(AppendRequest(clientID, commandID, key, s"-$commandID")).rescue {
+            case ex: AlreadySeen => Future.value(AppendResponse(""))
           }
         }.toList)
         Await.result(futures)
-        thrift.get(GetRequest(clientID, 101, key))
+        thrift.get(GetRequest(clientID, args(2).toInt + 100 + 1, key))
     }
 
     try {
