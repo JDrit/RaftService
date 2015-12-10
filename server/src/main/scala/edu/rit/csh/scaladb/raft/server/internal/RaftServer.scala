@@ -9,8 +9,8 @@ import com.twitter.finagle.builder.ServerBuilder
 import com.twitter.finagle.thrift.ThriftServerFramedCodec
 import com.twitter.util._
 import com.typesafe.scalalogging.LazyLogging
+import edu.rit.csh.scaladb.raft.server.internal.InternalService.FinagledService
 import edu.rit.csh.scaladb.raft.server.internal.StateMachine.CommandResult
-import edu.rit.csh.scaladb.raft.server.internal.RaftService.FinagledService
 import edu.rit.csh.scaladb.raft.server.util.Scala2Java8._
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
 
@@ -40,17 +40,15 @@ object RaftServer {
   /**
    * Constructs the server and starts listening on the given address
    * @param stateMachine the state machine to use as the system to process commands
-   * @param id the unique identifier for this node
    * @param address the address for the internal raft service to listen on
    * @param others the list of the other peers currently in the network
    * @return the raft server that has been constructed
    */
-  def apply(stateMachine: StateMachine, id: Int, address: InetSocketAddress,
-            others: Seq[(Int, InetSocketAddress)]): RaftServer = {
-    val self = new Peer(id, address)
-    val servers = others.map { case (oId, oAddress) => new Peer(oId, oAddress) }
+  def apply(stateMachine: StateMachine, address: InetSocketAddress, others: Seq[InetSocketAddress]): RaftServer = {
+    val self = new Peer(address)
+    val servers = others.map(new Peer(_))
       .:+(self)
-      .map { peer => (peer.id, peer) }
+      .map { peer => (peer.address, peer) }
       .toMap
     val raftServer = new RaftServer(self, servers, stateMachine)
     val internalImpl = new RaftInternalServiceImpl(raftServer)
@@ -75,7 +73,7 @@ object RaftServer {
  * @param stateMachine the state machine that is used to execute commands.
  */
 class RaftServer private(private[internal] val self: Peer,
-                         private[internal] val peers: Map[Int, Peer],
+                         private[internal] val peers: Map[String, Peer],
                          stateMachine: StateMachine) extends LazyLogging {
 
   // When servers start up, they begin as followers. A server remains in follower state
@@ -89,7 +87,7 @@ class RaftServer private(private[internal] val self: Peer,
   // latest term server has seen (initialized to 0 on first boot, increases monotonically)
   private val currentTerm = new AtomicInteger(0)
   // candidateId that received vote in current term
-  private val votedFor = new AtomicReference[Option[Int]](None)
+  private val votedFor = new AtomicReference[Option[String]](None)
   // log entries; each entry contains command for state machine, and term when entry
   // as received by leader (first index is 1)
   private val log: Log[LogEntry] = new Log[LogEntry]()
@@ -107,7 +105,7 @@ class RaftServer private(private[internal] val self: Peer,
   private val lastHeartbeat = new AtomicLong(0)
 
   // the ID of the current leader, so followers can redirect clients
-  private val leaderId = new AtomicReference[Option[Int]](None)
+  private val leaderId = new AtomicReference[Option[String]](None)
 
   // reference to the futures that are sending the vote requests to the other servers.
   // a reference is kept so that they can be canceled when a heartbeat comes in from a leader.
@@ -134,9 +132,9 @@ class RaftServer private(private[internal] val self: Peer,
 
   private[internal] def setTerm(term: Int): Unit = currentTerm.set(term)
 
-  private[internal] def getVotedFor(): Option[Int] = votedFor.get
+  private[internal] def getVotedFor(): Option[String] = votedFor.get
 
-  private[internal] def setVotedFor(id: Int): Unit = votedFor.set(Some(id))
+  private[internal] def setVotedFor(id: String): Unit = votedFor.set(Some(id))
 
   private def clearVotedFor(): Unit = votedFor.set(None)
 
@@ -144,11 +142,11 @@ class RaftServer private(private[internal] val self: Peer,
 
   private[internal] def toFollower(): Unit = status.set(ServerType.Follower)
 
-  private[internal] def getLeaderId(): Option[Int] = leaderId.get()
+  private[internal] def getLeaderId(): Option[String] = leaderId.get()
 
-  private[internal] def isLeader(): Boolean = leaderId.get().contains(self.id)
+  private[internal] def isLeader(): Boolean = leaderId.get().contains(self.address)
 
-  private[internal] def setLeaderId(id: Int): Unit = leaderId.set(Some(id))
+  private[internal] def setLeaderId(id: String): Unit = leaderId.set(Some(id))
 
   private def clearLeaderId(): Unit = leaderId.set(None)
 
@@ -244,9 +242,18 @@ class RaftServer private(private[internal] val self: Peer,
    * If an existing entry conflicts with a new one (same index but different terms),
    * delete the existing entry and all that follow it (§5.3)
    */
-  private[internal] def appendLog(entry: LogEntry): Unit = log.lift(entry.index)
-    .map(_ => log.set(entry.index, entry))
-    .getOrElse(log += entry)
+  private[internal] def appendLog(entry: LogEntry): Unit = {
+    log.lift(entry.index)
+      .map(_ => log.set(entry.index, entry))
+      .getOrElse(log += entry)
+
+    // Once a given server adds the new configuration entry to its log, it uses that
+    // configuration for all future decisions (a server always uses the latest configuration
+    // in its log, regardless of whether the entry is committed).
+    entry.cmd.right.foreach { newServers =>
+      logger.debug("appending new configuration")
+    }
+  }
 
   /**
    * Sends an append request to the peer, retying till the peer returns success.
@@ -260,7 +267,7 @@ class RaftServer private(private[internal] val self: Peer,
     val prevLogIndex = peer.getNextIndex() - 1 // index of log entry immediately preceding new ones
     val prevLogTerm = log.lift(prevLogIndex).map(_.term).getOrElse(RaftServer.BASE_INDEX) // term of prevLogIndex entry
     val entries = log.range(peer.getNextIndex(), log.length).map(MessageConverters.logEntryToThrift)
-    val request = AppendEntries(currentTerm.get, self.id, prevLogIndex, prevLogTerm, entries, commitIndex.get)
+    val request = AppendEntries(currentTerm.get, self.address, prevLogIndex, prevLogTerm, entries, commitIndex.get)
     peer.appendClient(request)
       .onSuccess { response =>
         if (response.success) {
@@ -277,6 +284,16 @@ class RaftServer private(private[internal] val self: Peer,
       }
   }
 
+  private[internal] def newConfiguration(servers: Seq[String]): SubmitResult = this.synchronized {
+    logger.info(
+      s"""current configuration: ${peers.values.map(_.address).mkString(", ")}
+         |new configuration: ${servers.mkString(", ")}""".stripMargin)
+
+    val index = log.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
+    val logEntry = LogEntry(currentTerm.get, index, Right(servers))
+    broadcastEntry(logEntry)
+  }
+
   /**
    * Submits a command to be processed by the replicated state machine. This takes the command,
    * and if this node is the leader, returns a future for the completion of the task. This
@@ -287,26 +304,24 @@ class RaftServer private(private[internal] val self: Peer,
    * @return the future with the result of the computation.
    */
   def submit(command: Command): SubmitResult = this.synchronized {
-    try {
-      if (!getLeaderId().contains(self.id)) {
-        NotLeaderResult(peers(getLeaderId().get).address)
-      } else {
-        val index = log.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
-        val logEntry = LogEntry(currentTerm.get, index, Left(stateMachine.parser.serialize(command)))
-        logger.debug(s"log entry: $logEntry")
-        // If command received from client: append entry to local log, respond after
-        // entry applied to state machine
-        appendLog(logEntry)
+    val index = log.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
+    val logEntry = LogEntry(currentTerm.get, index, Left(stateMachine.parser.serialize(command)))
+    broadcastEntry(logEntry)
+  }
 
-        SuccessResult(Future.collect(peers.values.map(appendRequest).toList).map(_ => commitLog(index)))
-      }
-    } catch {
-      case ex: Exception =>
-        println("error")
-        ex.printStackTrace()
-        NotLeaderResult(peers(getLeaderId().get).address)
+  private def broadcastEntry(logEntry: LogEntry): SubmitResult = {
+    if (!isLeader()) {
+      NotLeaderResult(peers(getLeaderId().get).address)
+    } else {
+      // If command received from client: append entry to local log, respond after
+      // entry applied to state machine
+      logger.debug(s"log entry: $logEntry")
+      appendLog(logEntry)
+      SuccessResult(Future.collect(peers.values.map(appendRequest).toList)
+        .map(_ => commitLog(logEntry.index)))
     }
   }
+
 
   /**
    * Starts the election process (5.2).
@@ -322,7 +337,7 @@ class RaftServer private(private[internal] val self: Peer,
     clearLeaderId()
 
     val index = commitIndex.get()
-    val requestVote = RequestVote(term, self.id, index, term)
+    val requestVote = RequestVote(term, self.address, index, term)
 
     // sends requests for vote to all other servers
     val futures = Future.collect(peers.values.map { peer =>
@@ -342,7 +357,7 @@ class RaftServer private(private[internal] val self: Peer,
       if (votesYes > peers.size / 2) {
         // Once a candidate wins an election, it becomes leader.
         status.set(ServerType.Leader)
-        setLeaderId(self.id)
+        setLeaderId(self.address)
 
         val (lastIndex, lastTerm) = getPrevInfo()
 
@@ -355,7 +370,7 @@ class RaftServer private(private[internal] val self: Peer,
         // authority and to prevent new elections.
 
         peers.values.foreach { peer =>
-          peer.appendClient(AppendEntries(term, self.id, lastIndex, lastTerm, Seq.empty, index))
+          peer.appendClient(AppendEntries(term, self.address, lastIndex, lastTerm, Seq.empty, index))
             .onFailure { _ => logger.debug(s"Exception sending out initial heartbeat to ${peer.address}") }
         }
 
@@ -384,10 +399,12 @@ class RaftServer private(private[internal] val self: Peer,
 
   override def toString(): String =
     s"""raft {
-       |  current term: ${currentTerm.get()}
+       |  current_term: ${currentTerm.get()}
        |  state: ${status.get()}
-       |  commit index: ${commitIndex.get()}
-       |  leader id: ${leaderId.get().getOrElse("<no one>")}
-       |  voted for: ${votedFor.get().getOrElse("<no one>")}
+       |  commit_index: ${commitIndex.get()}
+       |  last_log_index: ${getPrevInfo()._1}
+       |  leader_id: ${leaderId.get().getOrElse("<no one>")}
+       |  voted_for: ${votedFor.get().getOrElse("<no one>")}
+       |  ${peers.values.mkString("|")}
        |}""".stripMargin
 }

@@ -19,16 +19,16 @@ object RaftMain extends LazyLogging {
     val pArgs: Option[ArgMap] = parseArgs(Set("self", "client", "peers"), args)
     pArgs.foreach { pArgs =>
 
-      val (id, address) = parse[(Int, InetSocketAddress)](pArgs("self"))
-      val otherServers = parse[Array[(Int, InetSocketAddress)]](pArgs("peers"))
+      val address = parse[InetSocketAddress](pArgs("self"))
+      val otherServers = parse[Array[InetSocketAddress]](pArgs("peers"))
       val client = parse[InetSocketAddress](pArgs("client"))
 
-      logger.info(s"self configuration: $id")
+      logger.info(s"self configuration: $address")
       logger.info(s"other configurations: ${otherServers.mkString(", ")}")
 
       val stateMachine = new MemoryStateMachine()
 
-      val raftServer = RaftServer(stateMachine, id, address, otherServers)
+      val raftServer = RaftServer(stateMachine, address, otherServers)
 
       val clientImpl = new RaftClientServiceImpl(raftServer)
       val clientService = new ClientService(clientImpl, new Factory())

@@ -3,7 +3,7 @@ package edu.rit.csh.scaladb.raft.server.internal
 import com.twitter.util.Future
 import com.typesafe.scalalogging.LazyLogging
 import MessageConverters._
-import edu.rit.csh.scaladb.raft.server.internal.RaftService.FutureIface
+import edu.rit.csh.scaladb.raft.server.internal.InternalService.FutureIface
 
 /**
  * This is the Thrift Finagle service that is used to communicate between the different nodes
@@ -79,5 +79,12 @@ class RaftInternalServiceImpl(serverState: RaftServer) extends FutureIface with 
         AppendEntriesResponse(term = currentTerm, success = true)
       }
     }
+  }
+
+  override def stats(): Future[String] = Future.value(serverState.toString())
+
+  override def changeConfig(servers: Seq[String]) = serverState.newConfiguration(servers) match {
+    case SuccessResult(futures) => futures.map(_ => true)
+    case NotLeaderResult(leader) => Future.value(false)
   }
 }

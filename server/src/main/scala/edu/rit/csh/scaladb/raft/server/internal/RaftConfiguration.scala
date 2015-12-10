@@ -24,10 +24,9 @@ private[internal] object State extends Enumeration {
 
 /**
  * Server configuration for all members of the cluster
- * @param id the unique ID of the server
  * @param inetAddress the address to send requests to
  */
-private[internal] class Peer(val id: Int, val inetAddress: InetSocketAddress) {
+private[internal] class Peer(val inetAddress: InetSocketAddress) {
 
   val address = inetAddress.getHostName + ":" + inetAddress.getPort
 
@@ -41,7 +40,7 @@ private[internal] class Peer(val id: Int, val inetAddress: InetSocketAddress) {
     .failFast(false)
     .build()
 
-  private val client = new RaftService.FinagledClient(new MaskCancelFilter andThen service, new TBinaryProtocol.Factory())
+  private val client = new InternalService.FinagledClient(new MaskCancelFilter andThen service, new TBinaryProtocol.Factory())
 
   // index of the next log entry to send to that server (initialized to
   // leader last log index + 1)
@@ -68,7 +67,6 @@ private[internal] class Peer(val id: Int, val inetAddress: InetSocketAddress) {
 
   override def toString: String =
     s"""peer {
-       |  server id: $id
        |  address: ${address.toString}
        |  nextIndex: $nextIndex
        |  matchIndex: $matchIndex
@@ -133,7 +131,7 @@ trait MessageSerializer[C <: Command] {
  * @param index the global index in the log of this entry
  * @param cmd the command or configuration change of this server
  */
-private[internal] case class LogEntry(term: Int, index: Int, cmd: Either[String, Configuration]) {
+private[internal] case class LogEntry(term: Int, index: Int, cmd: Either[String, Seq[String]]) {
 
   override def toString: String =
     s"""entry {
@@ -145,7 +143,7 @@ private[internal] case class LogEntry(term: Int, index: Int, cmd: Either[String,
 
 private[internal] object MessageConverters {
 
-  def thriftToLogEntry(entry: Entry): LogEntry = (entry.command, entry.configuration) match {
+  def thriftToLogEntry(entry: Entry): LogEntry = (entry.command, entry.newConfiguration) match {
     case (Some(cmd), None) => LogEntry(entry.term, entry.index, Left(cmd))
     case (None, Some(config)) => LogEntry(entry.term, entry.index, Right(config))
     case _ => throw new RuntimeException(s"could not parse Entry to LogEntry $entry")

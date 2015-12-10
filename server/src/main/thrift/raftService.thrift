@@ -3,7 +3,7 @@ namespace java edu.rit.csh.scaladb.raft.server.internal
 #@namespace scala edu.rit.csh.scaladb.raft.server.internal
 
 typedef i32 Term
-typedef i32 ServerId
+typedef string ServerId
 
 struct RequestVote {
     1: required Term term;            // candidate’s term
@@ -17,7 +17,7 @@ struct VoteResponse {
     2: required bool voteGranted;   // true means candidate received vote
 }
 
-/*
+/**
  * Log entries contain either regular client commands or new configuration changes. This
  * is used to distinguish them from each other.
  */
@@ -26,23 +26,12 @@ enum EntryType {
     COMMAND
 }
 
-struct Server {
-    1: required ServerId id;
-    2: required string address;
-}
-
-struct Configuration {
-    1: required Term term;
-    2: required ServerId leaderId;
-    3: required list<Server> servers;
-}
-
 struct Entry {
     1: required Term term;
     2: required i32 index;
     3: required EntryType type;
     4: optional string command;
-    5: optional Configuration configuration;
+    5: optional list<string> newConfiguration;
 }
 
 struct AppendEntries {
@@ -59,7 +48,19 @@ struct AppendEntriesResponse {
     2: required bool success;  // true if follower contained entry matching prevLogIndex and prevLogTerm
 }
 
-service RaftService {
+/**
+ * Service for all calls by the administrator to the service to get the system's
+ * stats and to do configuration management.
+ */
+service AdminService {
+    bool changeConfig(1: list<string> servers)
+    string stats();
+}
+
+/**
+ * Service calls used for internal service communication
+ */
+service internalService extends AdminService {
     VoteResponse vote(1: RequestVote request);
-    AppendEntriesResponse append(2: AppendEntries entries);
+    AppendEntriesResponse append(1: AppendEntries entries);
 }
