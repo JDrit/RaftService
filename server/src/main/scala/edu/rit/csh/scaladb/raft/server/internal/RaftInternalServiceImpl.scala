@@ -13,8 +13,6 @@ import edu.rit.csh.scaladb.raft.server.internal.RaftService.FutureIface
  */
 class RaftInternalServiceImpl(serverState: RaftServer) extends FutureIface with LazyLogging {
 
-  private val lock = new Object()
-
   /**
    * The endpoint called when other nodes want this node to vote for it during leader
    * election. It sees if this node can vote and returns the result

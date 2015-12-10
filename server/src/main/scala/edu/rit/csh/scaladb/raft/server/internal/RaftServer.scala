@@ -1,7 +1,7 @@
 package edu.rit.csh.scaladb.raft.server.internal
 
 import java.net.InetSocketAddress
-import java.util.concurrent.{ConcurrentHashMap, ConcurrentLinkedQueue}
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
 
 import com.twitter.conversions.time._
@@ -10,7 +10,6 @@ import com.twitter.finagle.thrift.ThriftServerFramedCodec
 import com.twitter.util._
 import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.server.internal.StateMachine.CommandResult
-import edu.rit.csh.scaladb.raft.server.{PutResult, GetResult}
 import edu.rit.csh.scaladb.raft.server.internal.RaftService.FinagledService
 import edu.rit.csh.scaladb.raft.server.util.Scala2Java8._
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
@@ -41,7 +40,7 @@ object RaftServer {
   /**
    * Constructs the server and starts listening on the given address
    * @param stateMachine the state machine to use as the system to process commands
-   * @param id the unique identifer for this node
+   * @param id the unique identifier for this node
    * @param address the address for the internal raft service to listen on
    * @param others the list of the other peers currently in the network
    * @return the raft server that has been constructed
@@ -62,7 +61,7 @@ object RaftServer {
       .codec(ThriftServerFramedCodec())
       .name("Raft Internal Service")
       .build(internalService)
-
+    raftServer.start()
     raftServer
   }
 }
@@ -75,13 +74,13 @@ object RaftServer {
  * @param peers the list of all peers in the system, including itself
  * @param stateMachine the state machine that is used to execute commands.
  */
-class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateMachine) extends LazyLogging {
-
-  private final val DEBUG_INCREASE = 1
+class RaftServer private(private[internal] val self: Peer,
+                         private[internal] val peers: Map[Int, Peer],
+                         stateMachine: StateMachine) extends LazyLogging {
 
   // When servers start up, they begin as followers. A server remains in follower state
   // as long as it receives valid RPCs from a leader or candidate
-  private val status = new AtomicReference(ServerType.Follower)
+  private[internal] val status = new AtomicReference(ServerType.Follower)
 
   //
   // persistent stats on all servers
@@ -100,7 +99,7 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
   //
 
   // index of highest log entry known to be committed
-  private[internal] val commitIndex = new AtomicInteger(RaftServer.BASE_INDEX)
+  private val commitIndex = new AtomicInteger(RaftServer.BASE_INDEX)
   // index of highest log entry applied to state machine
   private val lastApplied = new AtomicInteger(RaftServer.BASE_INDEX)
 
@@ -111,45 +110,16 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
   private val leaderId = new AtomicReference[Option[Int]](None)
 
   // reference to the futures that are sending the vote requests to the other servers.
-  // a reference is kept so that they can be cancled when a heartbeat comes in from a leader.
+  // a reference is kept so that they can be canceled when a heartbeat comes in from a leader.
   private val electionFuture = new AtomicReference[Option[Future[Seq[VoteResponse]]]](None)
 
-  new Thread(new Runnable {
-    override def run(): Unit = {
-      while (true) {
-        val sleep = electionTimeout()
-        Thread.sleep(sleep.inMilliseconds)
-        if (status.get() != ServerType.Leader) {
-          // If a follower receives no communication over a period of time
-          // called the election timeout, then it assumes there is no viable
-          // leader and begins an election to choose a new leader
-          if (getLastHeartbeat() > sleep) {
-            startElection()
-          }
-        }
-      }
-    }
-  }).start()
+  private val electionThread = new ElectionThread(this)
+  private val heartThread = new HeartbeatThread(this)
 
-  // the monitor to use to notify the leader's heartbeat thread to send messages
-  private val heartMonitor: Object = new Object()
-  new Thread(new Runnable {
-    override def  run(): Unit = {
-      while (true) {
-        heartMonitor.synchronized {
-          while (status.get() != ServerType.Leader) {
-            heartMonitor.wait()
-          }
-          val (prevLogIndex, prevLogTerm) = getPrevInfo()
-          val append = AppendEntries(getCurrentTerm(), self.id, prevLogIndex,
-            prevLogTerm, Seq.empty, commitIndex.get)
-          peers.values.map(_.appendClient(append))
-        }
-        val sleep = 100.milliseconds * DEBUG_INCREASE
-        Thread.sleep(sleep.inMilliseconds)
-      }
-    }
-  }).start()
+  private def start(): Unit = {
+    electionThread.start()
+    heartThread.start()
+  }
 
   private[internal] def getCurrentTerm(): Int = currentTerm.get
 
@@ -253,7 +223,7 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
   /**
    * Gets the duration since the last heartbeat has occurred
    */
-  private def getLastHeartbeat(): Duration = (System.nanoTime() - lastHeartbeat.get()).nanoseconds
+  private[internal] def getLastHeartbeat(): Duration = (System.nanoTime() - lastHeartbeat.get()).nanoseconds
 
   /**
    * The timeout used for when the server should start the election process.
@@ -262,9 +232,9 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
    * timeouts are chosen randomly from a fixed interval
    * @return the time till the next election should take place
    */
-  private def electionTimeout(): Duration = (150 + Random.nextInt(300 - 150 + 1)).milliseconds * DEBUG_INCREASE
+  private[internal] def electionTimeout(): Duration = (150 + Random.nextInt(300 - 150 + 1)).milliseconds
 
-  private def getPrevInfo(): (Int, Int) = log.lastOption
+  private[internal] def getPrevInfo(): (Int, Int) = log.lastOption
     .map(entry => (entry.index, entry.term))
     .getOrElse((RaftServer.BASE_INDEX, RaftServer.BASE_INDEX))
 
@@ -341,7 +311,7 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
   /**
    * Starts the election process (5.2).
    */
-  private def startElection(): Unit = {
+  private[internal] def startElection(): Unit = {
     logger.info("starting election process")
 
     // To begin an election, a follower increments its current term
@@ -394,7 +364,7 @@ class RaftServer private(self: Peer, peers: Map[Int, Peer], stateMachine: StateM
         peers.values.foreach(peer => peer.setNextIndex(lastIndex + 1))
 
         // starting heartbeat thread
-        heartMonitor.synchronized(heartMonitor.notifyAll())
+        heartThread.synchronized(heartThread.notifyAll())
       } else { // If election timeout elapses: start new election
         logger.debug("did not receive enough votes to become leader, restarting election...")
         val maxResponse = result.map(_.term).max
