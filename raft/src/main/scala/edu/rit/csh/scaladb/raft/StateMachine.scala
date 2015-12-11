@@ -1,7 +1,7 @@
-package edu.rit.csh.scaladb.raft.server.internal
+package edu.rit.csh.scaladb.raft
 
 import com.typesafe.scalalogging.LazyLogging
-import edu.rit.csh.scaladb.raft.server.internal.StateMachine.CommandResult
+import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
 
 import scala.collection.mutable
 
@@ -46,7 +46,7 @@ abstract class StateMachine extends LazyLogging {
    * @return the result of the command if successful or the highest identifer for
    *         this client seen so far
    */
-  private[internal] final def process(command: Command): CommandResult = {
+  private[raft] final def process(command: Command): CommandResult = {
     val id = seen.getOrElseUpdate(command.client, -1)
     if (id >= command.id) {
       Left(id)

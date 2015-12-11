@@ -1,4 +1,4 @@
-package edu.rit.csh.scaladb.raft.server.util
+package edu.rit.csh.scaladb.raft.util
 
 import java.util.function._
 

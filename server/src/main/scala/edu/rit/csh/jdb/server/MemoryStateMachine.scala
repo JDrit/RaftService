@@ -1,6 +1,6 @@
-package edu.rit.csh.scaladb.raft.server
+package edu.rit.csh.jdb.server
 
-import edu.rit.csh.scaladb.raft.server.internal._
+import edu.rit.csh.scaladb.raft.{StateMachine, MessageSerializer, Result, Command}
 
 import scala.collection.mutable
 

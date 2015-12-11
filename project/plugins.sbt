@@ -1,6 +1,8 @@
 logLevel := Level.Warn
 
-resolvers += "sonatype" at "https://oss.sonatype.org/content/groups/public"
+resolvers ++= Seq(
+  "sonatype" at "https://oss.sonatype.org/content/groups/public",
+  "Twitter" at "http://maven.twttr.com")
 
 addSbtPlugin("com.twitter" %% "scrooge-sbt-plugin" % "3.18.1")
 

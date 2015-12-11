@@ -1,7 +1,6 @@
-package edu.rit.csh.scaladb.raft.server.internal
+package edu.rit.csh.scaladb.raft
 
-
-private[internal] class ElectionThread(server: RaftServer) extends Thread {
+private[raft] class ElectionThread(server: RaftServer) extends Thread {
 
   override def run(): Unit = {
     while (true) {

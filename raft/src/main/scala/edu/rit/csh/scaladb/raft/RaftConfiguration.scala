@@ -1,4 +1,4 @@
-package edu.rit.csh.scaladb.raft.server.internal
+package edu.rit.csh.scaladb.raft
 
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicInteger
@@ -9,15 +9,15 @@ import com.twitter.finagle.builder.ClientBuilder
 import com.twitter.finagle.filter.MaskCancelFilter
 import com.twitter.finagle.thrift.{ThriftClientFramedCodec, ThriftClientRequest}
 import com.twitter.util.Future
-import edu.rit.csh.scaladb.raft.server.internal.State.State
+import edu.rit.csh.scaladb.raft.State.State
 import org.apache.thrift.protocol.TBinaryProtocol
 
-private[internal] object ServerType extends Enumeration {
+private[raft] object ServerType extends Enumeration {
   type ServerType = Value
   val Follower, Leader, Candidate = Value
 }
 
-private[internal] object State extends Enumeration {
+private[raft] object State extends Enumeration {
   type State = Value
   val cOld, cOldNew = Value
 }
@@ -26,7 +26,7 @@ private[internal] object State extends Enumeration {
  * Server configuration for all members of the cluster
  * @param inetAddress the address to send requests to
  */
-private[internal] class Peer(val inetAddress: InetSocketAddress) {
+private[raft] class Peer(val inetAddress: InetSocketAddress) {
 
   val address = inetAddress.getHostName + ":" + inetAddress.getPort
 
@@ -80,7 +80,7 @@ private[internal] class Peer(val inetAddress: InetSocketAddress) {
  * @param cOldPeers the list of old servers
  * @param cNewPeers the list of new servers
  */
-private[internal] case class RaftConfiguration(state: State, cOldPeers: Array[Peer], cNewPeers: Array[Peer]) {
+private[raft] case class RaftConfiguration(state: State, cOldPeers: Array[Peer], cNewPeers: Array[Peer]) {
 
   override def toString: String =
     s"""configuration {
@@ -131,7 +131,7 @@ trait MessageSerializer[C <: Command] {
  * @param index the global index in the log of this entry
  * @param cmd the command or configuration change of this server
  */
-private[internal] case class LogEntry(term: Int, index: Int, cmd: Either[String, Seq[String]]) {
+private[raft] case class LogEntry(term: Int, index: Int, cmd: Either[String, Seq[String]]) {
 
   override def toString: String =
     s"""entry {
@@ -141,7 +141,7 @@ private[internal] case class LogEntry(term: Int, index: Int, cmd: Either[String,
        |}""".stripMargin
 }
 
-private[internal] object MessageConverters {
+private[raft] object MessageConverters {
 
   def thriftToLogEntry(entry: Entry): LogEntry = (entry.command, entry.newConfiguration) match {
     case (Some(cmd), None) => LogEntry(entry.term, entry.index, Left(cmd))

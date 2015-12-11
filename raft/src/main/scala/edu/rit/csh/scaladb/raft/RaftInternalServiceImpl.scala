@@ -1,9 +1,9 @@
-package edu.rit.csh.scaladb.raft.server.internal
+package edu.rit.csh.scaladb.raft
 
 import com.twitter.util.Future
 import com.typesafe.scalalogging.LazyLogging
-import MessageConverters._
-import edu.rit.csh.scaladb.raft.server.internal.InternalService.FutureIface
+import edu.rit.csh.scaladb.raft.InternalService.FutureIface
+import edu.rit.csh.scaladb.raft.MessageConverters._
 
 /**
  * This is the Thrift Finagle service that is used to communicate between the different nodes
@@ -11,7 +11,7 @@ import edu.rit.csh.scaladb.raft.server.internal.InternalService.FutureIface
  * does nothing in regard to client operations
  * @param serverState the class used to get the start of the Raft server
  */
-class RaftInternalServiceImpl(serverState: RaftServer) extends FutureIface with LazyLogging {
+private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends FutureIface with LazyLogging {
 
   /**
    * The endpoint called when other nodes want this node to vote for it during leader
@@ -57,6 +57,10 @@ class RaftInternalServiceImpl(serverState: RaftServer) extends FutureIface with 
       val commitIndex = serverState.getCommitIndex()
       serverState.setHeartbeat(entries.term)
       serverState.setLeaderId(entries.leaderId)
+
+      if (entries.entires.nonEmpty) {
+        logger.debug(s"got append of size ${entries.entires.size}")
+      }
 
       // Reply false if term < currentTerm
       if (entries.term < currentTerm) {

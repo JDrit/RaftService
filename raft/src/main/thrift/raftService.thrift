@@ -1,6 +1,6 @@
 
-namespace java edu.rit.csh.scaladb.raft.server.internal
-#@namespace scala edu.rit.csh.scaladb.raft.server.internal
+namespace java edu.rit.csh.scaladb.raft
+#@namespace scala edu.rit.csh.scaladb.raft
 
 typedef i32 Term
 typedef string ServerId

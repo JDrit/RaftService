@@ -1,4 +1,4 @@
-package edu.rit.csh.scaladb.raft.server.internal
+package edu.rit.csh.scaladb.raft
 
 /**
  * Thread used to send out the heartbeat to every node in the cluster. This uses a
@@ -6,7 +6,7 @@ package edu.rit.csh.scaladb.raft.server.internal
  * the messages
  * @param server
  */
-private[internal] class HeartbeatThread(server: RaftServer) extends Thread {
+private[raft] class HeartbeatThread(server: RaftServer) extends Thread {
 
     override def  run(): Unit = {
       while (true) {
