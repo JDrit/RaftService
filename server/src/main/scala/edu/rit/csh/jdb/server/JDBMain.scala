@@ -14,17 +14,26 @@ import com.twitter.util.{Future, Await}
 import edu.rit.csh.scaladb.raft._
 import io.circe.{Encoder, Json}
 import io.finch._
-import io.circe.generic.auto._
 import io.finch.circe._
-import io.circe.generic.auto._
 import io.circe.syntax._
 
-object RaftMain extends TwitterServer with Logging {
+object JDBMain extends TwitterServer with Logging {
 
   val addr: Flag[InetSocketAddress] = flag("raftAddr", new InetSocketAddress(5000), "Bind address for raft")
   val clientAddr: Flag[InetSocketAddress] = flag("client", new InetSocketAddress(6000), "Bind address for clients")
   val peersAddrs: Flag[Seq[InetSocketAddress]] = flag("peers", List.empty, "Raft peers")
-  val counter = statsReceiver.counter("requests_counter")
+
+  val getCounter = statsReceiver.scope("client").counter("requests_counter_get")
+  val putCounter = statsReceiver.scope("client").counter("requests_counter_put")
+  val deleteCounter = statsReceiver.scope("client").counter("requests_counter_delete")
+  val casCounter = statsReceiver.scope("client").counter("requests_counter_cas")
+  val appendCounter = statsReceiver.scope("client").counter("requests_counter_append")
+
+  val getReader = (param("client") :: param("id").as[Int] :: param("key")).as[Get]
+  val putReader = (param("client") :: param("id").as[Int] :: param("key") :: param("value")).as[Put]
+  val deleteReader = (param("client") :: param("id").as[Int] :: param("key")).as[Delete]
+  val casReader = (param("client") :: param("id").as[Int] :: param("key") :: param("current") :: param("new")).as[CAS]
+  val appendReader = (param("client") :: param("id").as[Int] :: param("key") :: param("value")).as[Append]
 
   implicit val resultEncoder = new Encoder[Result] {
     def apply(result: Result): Json = result match {
@@ -37,13 +46,12 @@ object RaftMain extends TwitterServer with Logging {
   }
 
   def process(command: Command)(implicit server: RaftServer): Future[Output[Json]] = {
-    counter.incr()
     server.submit(command) match {
       case NotLeaderResult(leader) =>
-        Future.value(Ok(Json.obj("exception" -> Json.string("not leader"), "leader" -> Json.string(leader))))
+        Future.value(Ok(Json.obj("exception" -> "not leader".asJson, "leader" -> leader.asJson)))
       case SuccessResult(futures) => futures.map {
         case Left(highest) =>
-          Ok(Json.obj("exception" -> Json.string("command has already been seen"), "highest" -> Json.int(highest)))
+          Ok(Json.obj("exception" -> "command has already been seen".asJson, "highest" -> highest.asJson))
         case Right(result) =>
           Ok(result.asJson)
       }
@@ -51,25 +59,35 @@ object RaftMain extends TwitterServer with Logging {
   }
 
   def main(): Unit = {
-    val stateMachine = new MemoryStateMachine()
-    implicit val raftServer = RaftServer(stateMachine, addr(), peersAddrs())
+    implicit val raftServer = RaftServer(new MemoryStateMachine(), addr(), peersAddrs())
 
-    val getReader = (param("client") :: param("id").as[Int] :: param("key")).as[Get]
-    val putReader = (param("client") :: param("id").as[Int] :: param("key") :: param("value")).as[Put]
-    val deleteReader = (param("client") :: param("id").as[Int] :: param("key")).as[Delete]
-    val casReader = (param("client") :: param("id").as[Int] :: param("key") :: param("current") :: param("new")).as[CAS]
-    val appendReader = (param("client") :: param("id").as[Int] :: param("key") :: param("value")).as[Append]
-
-    val getEndpoint: Endpoint[Json] = get("get" ? getReader) { get: Get => process(get) }
-    val putEndpoint: Endpoint[Json] = get("put" ? putReader) { put: Put => process(put) }
-    val deleteEndpoint: Endpoint[Json] = get("delete" ? getReader) { get: Get => process(get) }
-    val casEndpoint: Endpoint[Json] = get("cas" ? casReader) { cas: CAS => process(cas) }
-    val appendEndpoint: Endpoint[Json] = get("append" ? appendReader) { append: Append => process(append) }
+    val getEndpoint: Endpoint[Json] = get("get" ? getReader) { get: Get =>
+      getCounter.incr()
+      process(get)
+    }
+    val putEndpoint: Endpoint[Json] = get("put" ? putReader) { put: Put =>
+      putCounter.incr()
+      process(put)
+    }
+    val deleteEndpoint: Endpoint[Json] = get("delete" ? deleteReader) { delete: Delete =>
+      deleteCounter.incr()
+      process(delete)
+    }
+    val casEndpoint: Endpoint[Json] = get("cas" ? casReader) { cas: CAS =>
+      casCounter.incr()
+      process(cas)
+    }
+    val appendEndpoint: Endpoint[Json] = get("append" ? appendReader) { append: Append =>
+      appendCounter.incr()
+      process(append)
+    }
 
     val api: Service[Request, Response] = (
       getEndpoint :+: putEndpoint :+: deleteEndpoint :+: casEndpoint :+: appendEndpoint
     ).handle({
-      case e: Exception => NotFound(e)
+      case e: Exception =>
+        log.debug(s"exception thrown $e")
+        NotFound(e)
     }).toService
 
     val server = Http.server
@@ -80,8 +98,5 @@ object RaftMain extends TwitterServer with Logging {
 
     onExit { server.close() }
     Await.ready(server)
-
-
   }
-
 }

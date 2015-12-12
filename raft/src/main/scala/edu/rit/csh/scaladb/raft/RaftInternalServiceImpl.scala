@@ -1,7 +1,7 @@
 package edu.rit.csh.scaladb.raft
 
+import com.twitter.logging.{Logger, Logging}
 import com.twitter.util.Future
-import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.InternalService.FutureIface
 import edu.rit.csh.scaladb.raft.MessageConverters._
 
@@ -11,7 +11,9 @@ import edu.rit.csh.scaladb.raft.MessageConverters._
  * does nothing in regard to client operations
  * @param serverState the class used to get the start of the Raft server
  */
-private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends FutureIface with LazyLogging {
+private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends FutureIface {
+
+  private val log = Logger.get(getClass)
 
   /**
    * The endpoint called when other nodes want this node to vote for it during leader
@@ -31,7 +33,7 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
      }
 
      if (requestVote.term < currentTerm) {
-       logger.info(s"voted NO for ${requestVote.candidateId}")
+       log.info(s"voted NO for ${requestVote.candidateId}")
        VoteResponse(term = currentTerm, voteGranted = false)
      } else {
        val votedFor = serverState.getVotedFor()
@@ -41,10 +43,10 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
        // given term, on a first-come-first-served basis
        if ((votedFor.contains(requestVote.candidateId) || votedFor.isEmpty) && requestVote.lastLogIndex >= commitIndex) {
          serverState.setVotedFor(requestVote.candidateId) // updates the current voted for
-         logger.info(s"voted YES for ${requestVote.candidateId}")
+         log.info(s"voted YES for ${requestVote.candidateId}")
          VoteResponse(term = currentTerm, voteGranted = true)
        } else {
-         logger.info(s"voted NO for ${requestVote.candidateId}")
+         log.info(s"voted NO for ${requestVote.candidateId}")
          VoteResponse(term = currentTerm, voteGranted = false)
        }
      }
@@ -59,7 +61,7 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
       serverState.setLeaderId(entries.leaderId)
 
       if (entries.entires.nonEmpty) {
-        logger.debug(s"got append of size ${entries.entires.size}")
+        log.debug(s"got append of size ${entries.entires.size}")
       }
 
       // Reply false if term < currentTerm

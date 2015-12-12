@@ -7,8 +7,9 @@ import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
 import com.twitter.conversions.time._
 import com.twitter.finagle.builder.ServerBuilder
 import com.twitter.finagle.thrift.ThriftServerFramedCodec
+import com.twitter.logging.{Logger, Logging}
+import com.twitter.server.TwitterServer
 import com.twitter.util._
-import com.typesafe.scalalogging.LazyLogging
 import edu.rit.csh.scaladb.raft.InternalService.FinagledService
 import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
 import edu.rit.csh.scaladb.raft.util.Scala2Java8._
@@ -57,7 +58,7 @@ object RaftServer {
     ServerBuilder()
       .bindTo(self.inetAddress)
       .codec(ThriftServerFramedCodec())
-      .name("Raft Internal Service")
+      .name("raft_internal_service")
       .build(internalService)
     raftServer.start()
     raftServer
@@ -74,7 +75,12 @@ object RaftServer {
  */
 class RaftServer private(private[raft] val self: Peer,
                          private[raft] val peers: Map[String, Peer],
-                         stateMachine: StateMachine) extends LazyLogging {
+                         stateMachine: StateMachine) extends TwitterServer with Logging {
+
+  private val appendCounter = statsReceiver.scope("raft_service").counter("log_appends")
+  private val commitCounter = statsReceiver.scope("raft_service").counter("log_commits")
+  private val electionCounter = statsReceiver.scope("raft_service").counter("elections")
+
 
   // When servers start up, they begin as followers. A server remains in follower state
   // as long as it receives valid RPCs from a leader or candidate
@@ -90,7 +96,7 @@ class RaftServer private(private[raft] val self: Peer,
   private val votedFor = new AtomicReference[Option[String]](None)
   // log entries; each entry contains command for state machine, and term when entry
   // as received by leader (first index is 1)
-  private val log: Log[LogEntry] = new Log[LogEntry]()
+  private val raftLog: Log[LogEntry] = new Log[LogEntry]()
 
   //
   // volatile state on all servers
@@ -170,11 +176,12 @@ class RaftServer private(private[raft] val self: Peer,
     val old = commitIndex.get()
     if (old < index) {
       commitIndex.set(index)
-      logger.debug(s"incrementing commit index: $old - $index")
+      log.debug(s"incrementing commit index: $old - $index")
 
       (old + 1 to index).foreach { i =>
-        logger.info(s"applying log entry #$i")
-        log.get(i).cmd match {
+        commitCounter.incr()
+        log.info(s"applying log entry #$i")
+        raftLog.get(i).cmd match {
           case Left(cmd) =>
             result = stateMachine.process(stateMachine.parser.deserialize(cmd))
             results.put(i, result)
@@ -198,7 +205,7 @@ class RaftServer private(private[raft] val self: Peer,
     result
   }
 
-  private[raft] def getLogEntry(index: Int): Option[LogEntry] = log.lift(index)
+  private[raft] def getLogEntry(index: Int): Option[LogEntry] = raftLog.lift(index)
 
   /**
    * While waiting for votes, a candidate may receive an  AppendEntries RPC from another server
@@ -232,7 +239,7 @@ class RaftServer private(private[raft] val self: Peer,
    */
   private[raft] def electionTimeout(): Duration = (150 + Random.nextInt(300 - 150 + 1)).milliseconds
 
-  private[raft] def getPrevInfo(): (Int, Int) = log.lastOption
+  private[raft] def getPrevInfo(): (Int, Int) = raftLog.lastOption
     .map(entry => (entry.index, entry.term))
     .getOrElse((RaftServer.BASE_INDEX, RaftServer.BASE_INDEX))
 
@@ -243,15 +250,16 @@ class RaftServer private(private[raft] val self: Peer,
    * delete the existing entry and all that follow it (§5.3)
    */
   private[raft] def appendLog(entry: LogEntry): Unit = {
-    log.lift(entry.index)
-      .map(_ => log.set(entry.index, entry))
-      .getOrElse(log += entry)
+    appendCounter.incr()
+    raftLog.lift(entry.index)
+      .map(_ => raftLog.set(entry.index, entry))
+      .getOrElse(raftLog += entry)
 
     // Once a given server adds the new configuration entry to its log, it uses that
     // configuration for all future decisions (a server always uses the latest configuration
     // in its log, regardless of whether the entry is committed).
     entry.cmd.right.foreach { newServers =>
-      logger.debug("appending new configuration")
+      log.debug("appending new configuration")
     }
   }
 
@@ -268,18 +276,18 @@ class RaftServer private(private[raft] val self: Peer,
    */
   private def appendRequest(peer: Peer, latch: CountDownLatch, delay: Long = 100): Future[AppendEntriesResponse] = {
     val prevLogIndex = peer.getNextIndex() - 1 // index of log entry immediately preceding new ones
-    val prevLogTerm = log.lift(prevLogIndex).map(_.term).getOrElse(RaftServer.BASE_INDEX) // term of prevLogIndex entry
-    val entries = log.range(peer.getNextIndex(), log.length).map(MessageConverters.logEntryToThrift)
+    val prevLogTerm = raftLog.lift(prevLogIndex).map(_.term).getOrElse(RaftServer.BASE_INDEX) // term of prevLogIndex entry
+    val entries = raftLog.range(peer.getNextIndex(), raftLog.length).map(MessageConverters.logEntryToThrift)
     val request = AppendEntries(currentTerm.get, self.address, prevLogIndex, prevLogTerm, entries, commitIndex.get)
     peer.appendClient(request)
       .onSuccess { response =>
-        logger.debug("success")
+        log.debug("success")
         latch.countDown()
         if (response.success) {
           peer.setNextIndex(entries.last.index + 1)
           peer.setMatchIndex(entries.last.index + 1)
         } else {
-          logger.debug(s"peer ${peer.address} failed the request, trying again")
+          log.debug(s"peer ${peer.address} failed the request, trying again")
           peer.decNextIndex()
           appendRequest(peer, latch, delay) // try again with lower commit index
         }
@@ -287,7 +295,7 @@ class RaftServer private(private[raft] val self: Peer,
         if (latch.isZero) { // returns a bad result once a majority of the nodes respond
           Future.value(AppendEntriesResponse(getCommitIndex(), false))
         } else {
-          logger.debug(s"exception occurred while sending an append request to ${peer.address}, delaying for $delay ms\n$ex")
+          log.debug(s"exception occurred while sending an append request to ${peer.address}, delaying for $delay ms\n$ex")
           Thread.sleep(delay)
           appendRequest(peer, latch, if (delay < 1000 * 5) delay * 2 else delay)
         }
@@ -295,11 +303,11 @@ class RaftServer private(private[raft] val self: Peer,
   }
 
   private[raft] def newConfiguration(servers: Seq[String]): SubmitResult = this.synchronized {
-    logger.info(
+    log.info(
       s"""current configuration: ${peers.values.map(_.address).mkString(", ")}
          |new configuration: ${servers.mkString(", ")}""".stripMargin)
 
-    val index = log.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
+    val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
     val logEntry = LogEntry(currentTerm.get, index, Right(servers))
     broadcastEntry(logEntry)
   }
@@ -314,7 +322,7 @@ class RaftServer private(private[raft] val self: Peer,
    * @return the future with the result of the computation.
    */
   def submit(command: Command): SubmitResult = this.synchronized {
-    val index = log.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
+    val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
     val logEntry = LogEntry(currentTerm.get, index, Left(stateMachine.parser.serialize(command)))
     broadcastEntry(logEntry)
   }
@@ -325,7 +333,7 @@ class RaftServer private(private[raft] val self: Peer,
     } else {
       // If command received from client: append entry to local log, respond after
       // entry applied to state machine
-      logger.debug(s"log entry: $logEntry")
+      log.debug(s"log entry: $logEntry")
       appendLog(logEntry)
       val latch = new CountDownLatch(peers.size / 2 + 1)
       val futures = peers.values
@@ -339,7 +347,8 @@ class RaftServer private(private[raft] val self: Peer,
    * Starts the election process (5.2).
    */
   private[raft] def startElection(): Unit = {
-    logger.info("starting election process")
+    electionCounter.incr()
+    log.info("starting election process")
 
     // To begin an election, a follower increments its current term
     val term = incrementTerm()
@@ -353,7 +362,7 @@ class RaftServer private(private[raft] val self: Peer,
 
     // sends requests for vote to all other servers
     val futures = Future.collect(peers.values.map { peer =>
-      logger.debug(s"sending RequestVote to ${peer.address}")
+      log.debug(s"sending RequestVote to ${peer.address}")
       // returns a failed vote response when the server is unreachable
       peer.voteClient(requestVote).rescue { case _ => Future { VoteResponse(term, false) } }
     }.toList)
@@ -362,7 +371,7 @@ class RaftServer private(private[raft] val self: Peer,
       val result = Await.result(futures, 100.milliseconds)
       // the number of severs that vote yes for this server, plus 1 for voting for yourself
       val votesYes = result.count(_._2)
-      logger.debug(s"received $votesYes yes vote(s)")
+      log.debug(s"received $votesYes yes vote(s)")
 
       // A candidate wins an election if it receives votes from a majority of the
       // servers in the full cluster for the same term
@@ -373,7 +382,7 @@ class RaftServer private(private[raft] val self: Peer,
 
         val (lastIndex, lastTerm) = getPrevInfo()
 
-        logger.debug(
+        log.info(
           s"""Received enough votes to become leader:
              |new leader config: $this
            """.stripMargin)
@@ -383,7 +392,7 @@ class RaftServer private(private[raft] val self: Peer,
 
         peers.values.foreach { peer =>
           peer.appendClient(AppendEntries(term, self.address, lastIndex, lastTerm, Seq.empty, index))
-            .onFailure { _ => logger.debug(s"Exception sending out initial heartbeat to ${peer.address}") }
+            .onFailure { _ => log.debug(s"Exception sending out initial heartbeat to ${peer.address}") }
         }
 
         // When a leader first comes to power, it initializes all nextIndex values to the index
@@ -393,16 +402,16 @@ class RaftServer private(private[raft] val self: Peer,
         // starting heartbeat thread
         heartThread.synchronized(heartThread.notifyAll())
       } else { // If election timeout elapses: start new election
-        logger.debug("did not receive enough votes to become leader, restarting election...")
+        log.debug("did not receive enough votes to become leader, restarting election...")
         val maxResponse = result.map(_.term).max
         // updates the term to the highest response it got
         currentTerm.updateAndGet((curr: Int) => if (curr < maxResponse) maxResponse else curr)
       }
     } catch {
       case ex: TimeoutException =>
-        logger.debug("timeout exception during election process, restarting election processes")
+        log.debug("timeout exception during election process, restarting election processes")
       case ex: FutureCancelledException =>
-        logger.debug("election process cancelled by other leader")
+        log.debug("election process cancelled by other leader")
     } finally {
       clearVotedFor()
       electionFuture.set(None)

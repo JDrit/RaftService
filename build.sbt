@@ -19,11 +19,11 @@ lazy val raft = project.in(file("raft"))
   .settings(
     name := "raft",
     libraryDependencies ++= Seq(
-      "com.typesafe.scala-logging" % "scala-logging_2.11" % "3.1.0",
-      "ch.qos.logback" % "logback-classic" % "1.1.2",
       "org.apache.thrift" % "libthrift" % "0.9.2",
       "com.twitter" %% "scrooge-core" % "4.2.0",
-      "com.twitter" %% "finagle-thrift" % "6.30.0"
+      "com.twitter" %% "finagle-thrift" % "6.30.0",
+      "com.twitter" % "twitter-server_2.11" % "1.16.0",
+      "com.twitter" % "finagle-stats_2.11" % "6.31.0"
     ), scroogeThriftSourceFolder in Compile <<= baseDirectory {
       base => base / "src/main/thrift"
     }

@@ -1,6 +1,7 @@
 package edu.rit.csh.scaladb.raft
 
-import com.typesafe.scalalogging.LazyLogging
+import com.twitter.finagle.stats.{LoadedStatsReceiver, StatsReceiver}
+import com.twitter.logging.Logger
 import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
 
 import scala.collection.mutable
@@ -12,7 +13,10 @@ object StateMachine {
 /**
  * Abstract state machine that runs the commands in the Raft algorithm
  */
-abstract class StateMachine extends LazyLogging {
+abstract class StateMachine {
+  private val statsReceiver: StatsReceiver = LoadedStatsReceiver
+  private val log = Logger.get(getClass)
+  private val seenCounter = statsReceiver.scope("raft_service").counter("seen_log_ids")
 
   /**
    * The state machine keeps track of the highest identifier seen by each
@@ -49,9 +53,10 @@ abstract class StateMachine extends LazyLogging {
   private[raft] final def process(command: Command): CommandResult = {
     val id = seen.getOrElseUpdate(command.client, -1)
     if (id >= command.id) {
+      seenCounter.incr()
       Left(id)
     } else {
-      logger.debug(s"processing command $command")
+      log.debug(s"processing command $command")
       seen.put(command.client, command.id)
       Right(compute(command))
     }

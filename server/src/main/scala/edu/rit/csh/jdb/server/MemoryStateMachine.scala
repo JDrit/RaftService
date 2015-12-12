@@ -1,5 +1,6 @@
 package edu.rit.csh.jdb.server
 
+import com.twitter.logging.Logger
 import edu.rit.csh.scaladb.raft.{StateMachine, MessageSerializer, Result, Command}
 
 import scala.collection.mutable
@@ -23,25 +24,32 @@ case class AppendResult(override val id: Int, newValue: String) extends Result(i
 
 class MemoryStateMachine extends StateMachine {
   private val storage = mutable.Map.empty[String, String]
+  private val log = Logger.get(getClass)
 
-  override def compute(cmd: Command): Result = cmd match {
-    case Get(client, id, key) => GetResult(id, storage.get(key))
-    case Put(client, id, key, value) =>
-      val replaced = storage.contains(key)
-      storage.put(key, value)
-      PutResult(id, replaced)
-    case Delete(client, id, key) => DeleteResult(id, storage.remove(key).isDefined)
-    case CAS(client, id, key, current, newVal) =>
-      if (storage.get(key).contains(current)) CASResult(id, true)
-      else CASResult(id, false)
-    case Append(client, id, key, value) => storage.get(key) match {
-      case Some(curValue) =>
-        val newValue = curValue + value
-        storage.put(key, newValue)
-        AppendResult(id, newValue)
-      case None =>
+  override def compute(cmd: Command): Result = {
+    log.debug(s"computing command: $cmd")
+    cmd match {
+      case Get(client, id, key) => GetResult(id, storage.get(key))
+      case Put(client, id, key, value) =>
+        val replaced = storage.contains(key)
         storage.put(key, value)
-        AppendResult(id, value)
+        PutResult(id, replaced)
+      case Delete(client, id, key) =>
+        val exists = storage.contains(key)
+        storage.remove(key)
+        DeleteResult(id, exists)
+      case CAS(client, id, key, current, newVal) =>
+        if (storage.get(key).contains(current)) CASResult(id, true)
+        else CASResult(id, false)
+      case Append(client, id, key, value) => storage.get(key) match {
+        case Some(curValue) =>
+          val newValue = curValue + value
+          storage.put(key, newValue)
+          AppendResult(id, newValue)
+        case None =>
+          storage.put(key, value)
+          AppendResult(id, value)
+      }
     }
   }
 
@@ -59,7 +67,7 @@ class MemoryStateMachine extends StateMachine {
       split(0) match {
         case "get" => Get(split(1), split(2).toInt, split(3))
         case "put" => Put(split(1), split(2).toInt, split(3), split(4))
-        case "delete" => Delete(split(1), split(2).toInt, split(2))
+        case "delete" => Delete(split(1), split(2).toInt, split(3))
         case "cas" => CAS(split(1), split(2).toInt, split(3), split(4), split(5))
         case "append" => Append(split(1), split(2).toInt, split(3), split(4))
       }
