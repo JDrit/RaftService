@@ -37,23 +37,21 @@ import scala.util.Random
 
 object RaftServer {
   private[raft] final val BASE_INDEX: Int = -1
+  private val log = Logger.get(getClass)
 
-  /**
-   * Constructs the server and starts listening on the given address
-   * @param stateMachine the state machine to use as the system to process commands
-   * @param address the address for the internal raft service to listen on
-   * @param others the list of the other peers currently in the network
-   * @return the raft server that has been constructed
-   */
-  def apply(stateMachine: StateMachine, address: InetSocketAddress, others: Seq[InetSocketAddress]): RaftServer = {
-    val self = new Peer(address)
-    val servers = others.map(new Peer(_))
+  def apply(stateMachine: StateMachine, address: InetSocketAddress, client: InetSocketAddress,
+           raftAddrs: Seq[InetSocketAddress], serverAddrs: Seq[InetSocketAddress]): RaftServer = {
+    val self = new Peer(address, client)
+    val servers = raftAddrs.zip(serverAddrs)
+      .map { case (raft, server) => new Peer(raft, server) }
       .:+(self)
-      .map { peer => (peer.address, peer) }
+      .map(peer => (peer.address, peer))
       .toMap
     val raftServer = new RaftServer(self, servers, stateMachine)
     val internalImpl = new RaftInternalServiceImpl(raftServer)
     val internalService = new FinagledService(internalImpl, new Factory())
+
+    log.info(s"listening on $address, cluster: ${servers.keys.mkString(", ")}")
 
     ServerBuilder()
       .bindTo(self.inetAddress)
@@ -148,7 +146,9 @@ class RaftServer private(private[raft] val self: Peer,
 
   private[raft] def toFollower(): Unit = status.set(ServerType.Follower)
 
-  private[raft] def getLeaderId(): Option[String] = leaderId.get()
+  def getLeaderId(): Option[String] = leaderId.get()
+
+  def getLeader(): Option[Peer] = leaderId.get().flatMap(id => peers.get(id))
 
   private[raft] def isLeader(): Boolean = leaderId.get().contains(self.address)
 
@@ -176,11 +176,11 @@ class RaftServer private(private[raft] val self: Peer,
     val old = commitIndex.get()
     if (old < index) {
       commitIndex.set(index)
-      log.debug(s"incrementing commit index: $old - $index")
+      log.info(s"incrementing commit index: $old - $index")
 
       (old + 1 to index).foreach { i =>
         commitCounter.incr()
-        log.info(s"applying log entry #$i")
+        log.info(s"applying log entry #$i: ${raftLog.get(i)}")
         raftLog.get(i).cmd match {
           case Left(cmd) =>
             result = stateMachine.process(stateMachine.parser.deserialize(cmd))
@@ -259,7 +259,7 @@ class RaftServer private(private[raft] val self: Peer,
     // configuration for all future decisions (a server always uses the latest configuration
     // in its log, regardless of whether the entry is committed).
     entry.cmd.right.foreach { newServers =>
-      log.debug("appending new configuration")
+      log.info("appending new configuration")
     }
   }
 
@@ -333,7 +333,6 @@ class RaftServer private(private[raft] val self: Peer,
     } else {
       // If command received from client: append entry to local log, respond after
       // entry applied to state machine
-      log.debug(s"log entry: $logEntry")
       appendLog(logEntry)
       val latch = new CountDownLatch(peers.size / 2 + 1)
       val futures = peers.values

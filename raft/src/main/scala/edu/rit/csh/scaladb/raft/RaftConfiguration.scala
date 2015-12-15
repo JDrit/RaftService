@@ -26,7 +26,7 @@ private[raft] object State extends Enumeration {
  * Server configuration for all members of the cluster
  * @param inetAddress the address to send requests to
  */
-private[raft] class Peer(val inetAddress: InetSocketAddress) {
+private[raft] class Peer(val inetAddress: InetSocketAddress, val clientAddr: InetSocketAddress) {
 
   val address = inetAddress.getHostName + ":" + inetAddress.getPort
 

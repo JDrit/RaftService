@@ -1,6 +1,9 @@
 package edu.rit.csh.jdb.server
 
+import java.io.{BufferedWriter, FileWriter, File}
+import java.lang.management.ManagementFactory
 import java.net.InetSocketAddress
+import java.nio.file.Files
 
 import com.twitter.app.Flag
 
@@ -19,9 +22,10 @@ import io.circe.syntax._
 
 object JDBMain extends TwitterServer with Logging {
 
-  val addr: Flag[InetSocketAddress] = flag("raftAddr", new InetSocketAddress(5000), "Bind address for raft")
-  val clientAddr: Flag[InetSocketAddress] = flag("client", new InetSocketAddress(6000), "Bind address for clients")
-  val peersAddrs: Flag[Seq[InetSocketAddress]] = flag("peers", List.empty, "Raft peers")
+  val addr: Flag[InetSocketAddress] = flag("raftAddr", new InetSocketAddress("localhost", 5000), "Bind address for raft")
+  val ownAddr: Flag[InetSocketAddress] = flag("client", new InetSocketAddress("localhost", 6000), "Bind address for clients")
+  val raftAddrs: Flag[Seq[InetSocketAddress]] = flag("peers", List.empty, "other Raft peers")
+  val serverAddrs: Flag[Seq[InetSocketAddress]] = flag("servers", List.empty, "other server addresses")
 
   val getCounter = statsReceiver.scope("client").counter("requests_counter_get")
   val putCounter = statsReceiver.scope("client").counter("requests_counter_put")
@@ -45,21 +49,34 @@ object JDBMain extends TwitterServer with Logging {
     }
   }
 
-  def process(command: Command)(implicit server: RaftServer): Future[Output[Json]] = {
-    server.submit(command) match {
-      case NotLeaderResult(leader) =>
-        Future.value(Ok(Json.obj("exception" -> "not leader".asJson, "leader" -> leader.asJson)))
-      case SuccessResult(futures) => futures.map {
-        case Left(highest) =>
-          Ok(Json.obj("exception" -> "command has already been seen".asJson, "highest" -> highest.asJson))
-        case Right(result) =>
-          Ok(result.asJson)
-      }
+  def getRedirect(cmd: Command, server: RaftServer): Output[Nothing] = {
+    val addr = server.getLeader()
+      .map(peer => s"http://${peer.clientAddr.getHostName}:${peer.clientAddr.getPort}")
+      .getOrElse("")
+    val request = cmd match {
+      case Get(client, id, key) => Request.queryString(s"$addr/get", ("client", client), ("id", id.toString), ("key", key))
+      case Put(client, id, key, value) => Request.queryString(s"$addr/put", ("client", client), ("id", id.toString), ("key", key), ("value", value))
+      case Delete(client, id, key) => Request.queryString(s"$addr/put", ("client", client), ("id", id.toString), ("key", key))
+      case CAS(client, id, key, currV, newV) => Request.queryString(s"$addr/put", ("client", client), ("id", id.toString), ("key", key), ("current", currV), ("new", newV))
+      case Append(client, id, key, value) =>  Request.queryString(s"$addr/append", ("client", client), ("id", id.toString), ("key", key), ("value", value))
+    }
+    TemporaryRedirect(new Exception()).withHeader(("Location", request))
+  }
+
+  def process(command: Command)(implicit server: RaftServer): Future[Output[Json]] = server.submit(command) match {
+    case NotLeaderResult(leader) => Future.value(getRedirect(command, server))
+    case SuccessResult(futures) => futures.map {
+      case Left(highest) => BadRequest(new Exception(
+        Json.obj("message" -> "command has already been seen".asJson,
+        "errorCode" -> 101.asJson, "highest" -> highest.asJson).toString()))
+      case Right(result) => Ok(result.asJson)
     }
   }
 
+  def getPid(): Int = ManagementFactory.getRuntimeMXBean().getName.split("@")(0).toInt
+
   def main(): Unit = {
-    implicit val raftServer = RaftServer(new MemoryStateMachine(), addr(), peersAddrs())
+    implicit val raftServer = RaftServer(new MemoryStateMachine(), addr(), ownAddr(), raftAddrs(), serverAddrs())
 
     val getEndpoint: Endpoint[Json] = get("get" ? getReader) { get: Get =>
       getCounter.incr()
@@ -86,15 +103,27 @@ object JDBMain extends TwitterServer with Logging {
       getEndpoint :+: putEndpoint :+: deleteEndpoint :+: casEndpoint :+: appendEndpoint
     ).handle({
       case e: Exception =>
-        log.debug(s"exception thrown $e")
+        log.debug(s"server exception thrown ${e.getStackTrace.mkString("\n")}", e)
         NotFound(e)
     }).toService
 
     val server = Http.server
       .configured(Stats(statsReceiver))
-      .serve(clientAddr(), api)
+      .serve(ownAddr(), api)
 
     log.info("Service finished being initialized")
+
+    /*val bw = new BufferedWriter(new FileWriter(pidFile()))
+    bw.write(getPid().toString)
+    bw.close()
+
+    Runtime.getRuntime.addShutdownHook(new Thread {
+      override def run(): Unit =try {
+        Files.delete(pidFile().toPath)
+      } catch {
+        case ex: Exception => ()
+      }
+    })*/
 
     onExit { server.close() }
     Await.ready(server)
