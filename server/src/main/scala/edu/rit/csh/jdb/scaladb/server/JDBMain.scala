@@ -1,9 +1,7 @@
-package edu.rit.csh.jdb.server
+package edu.rit.csh.jdb.scaladb.server
 
-import java.io.{BufferedWriter, FileWriter, File}
 import java.lang.management.ManagementFactory
 import java.net.InetSocketAddress
-import java.nio.file.Files
 
 import com.twitter.app.Flag
 
@@ -49,22 +47,19 @@ object JDBMain extends TwitterServer with Logging {
     }
   }
 
-  def getRedirect(cmd: Command, server: RaftServer): Output[Nothing] = {
-    val addr = server.getLeader()
-      .map(peer => s"http://${peer.clientAddr.getHostName}:${peer.clientAddr.getPort}")
-      .getOrElse("")
-    val request = cmd match {
-      case Get(client, id, key) => Request.queryString(s"$addr/get", ("client", client), ("id", id.toString), ("key", key))
-      case Put(client, id, key, value) => Request.queryString(s"$addr/put", ("client", client), ("id", id.toString), ("key", key), ("value", value))
-      case Delete(client, id, key) => Request.queryString(s"$addr/put", ("client", client), ("id", id.toString), ("key", key))
-      case CAS(client, id, key, currV, newV) => Request.queryString(s"$addr/put", ("client", client), ("id", id.toString), ("key", key), ("current", currV), ("new", newV))
-      case Append(client, id, key, value) =>  Request.queryString(s"$addr/append", ("client", client), ("id", id.toString), ("key", key), ("value", value))
-    }
-    TemporaryRedirect(new Exception()).withHeader(("Location", request))
-  }
-
   def process(command: Command)(implicit server: RaftServer): Future[Output[Json]] = server.submit(command) match {
-    case NotLeaderResult(leader) => Future.value(getRedirect(command, server))
+    case NotLeaderResult(leader) =>
+      val addr = server.getLeader()
+        .map(peer => s"http://${peer.clientAddr.getHostName}:${peer.clientAddr.getPort}")
+        .getOrElse("")
+      val request = command match {
+        case Get(client, id, key) => Request.queryString(s"$addr/get", ("client", client), ("id", id.toString), ("key", key))
+        case Put(client, id, key, value) => Request.queryString(s"$addr/put", ("client", client), ("id", id.toString), ("key", key), ("value", value))
+        case Delete(client, id, key) => Request.queryString(s"$addr/delete", ("client", client), ("id", id.toString), ("key", key))
+        case CAS(client, id, key, currV, newV) => Request.queryString(s"$addr/cas", ("client", client), ("id", id.toString), ("key", key), ("current", currV), ("new", newV))
+        case Append(client, id, key, value) =>  Request.queryString(s"$addr/append", ("client", client), ("id", id.toString), ("key", key), ("value", value))
+      }
+      Future.value(TemporaryRedirect(new Exception()).withHeader(("Location", request)))
     case SuccessResult(futures) => futures.map {
       case Left(highest) => BadRequest(new Exception(
         Json.obj("message" -> "command has already been seen".asJson,

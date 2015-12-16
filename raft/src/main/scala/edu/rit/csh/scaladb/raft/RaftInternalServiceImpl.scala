@@ -1,7 +1,7 @@
 package edu.rit.csh.scaladb.raft
 
 import com.twitter.logging.{Logger, Logging}
-import com.twitter.util.Future
+import com.twitter.util.{Try, Future}
 import edu.rit.csh.scaladb.raft.InternalService.FutureIface
 import edu.rit.csh.scaladb.raft.MessageConverters._
 
@@ -87,7 +87,13 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
     }
   }
 
-  override def stats(): Future[String] = Future.value(serverState.toString())
+  override def stats(): Future[String] = try {
+    Future.value(serverState.toString())
+  } catch {
+    case ex: Exception =>
+      log.error(s"exception while getting stats for server $ex", ex)
+      Future.value("")
+  }
 
   override def changeConfig(servers: Seq[String]) = serverState.newConfiguration(servers) match {
     case SuccessResult(futures) => futures.map(_ => true)

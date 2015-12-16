@@ -14,20 +14,30 @@ lazy val commonSettings = Seq(
   organization := "edu.rit.csh.jdb"
 )
 
+lazy val common = project.in(file("common"))
+  .settings(commonSettings: _*)
+  .settings(
+    libraryDependencies ++= Seq(
+      "org.apache.thrift" % "libthrift" % "0.9.2",
+      "com.twitter" %% "scrooge-core" % "4.3.0",
+      "com.twitter" %% "finagle-thrift" % "6.30.0"
+    ),
+    scroogeThriftSourceFolder in Compile <<= baseDirectory {
+      base => base / "src/main/thrift"
+    })
+
 lazy val raft = project.in(file("raft"))
   .settings(commonSettings: _*)
   .settings(
     name := "raft",
     libraryDependencies ++= Seq(
       "org.apache.thrift" % "libthrift" % "0.9.2",
-      "com.twitter" %% "scrooge-core" % "4.2.0",
-      "com.twitter" %% "finagle-thrift" % "6.30.0",
+      "com.twitter" %% "scrooge-core" % "4.3.0",
+      "com.twitter" %% "finagle-thrift" % "6.31.0",
       "com.twitter" % "twitter-server_2.11" % "1.16.0",
       "com.twitter" % "finagle-stats_2.11" % "6.31.0"
-    ), scroogeThriftSourceFolder in Compile <<= baseDirectory {
-      base => base / "src/main/thrift"
-    }
-  )
+    )
+  ).dependsOn(common)
 
 lazy val server = project.in(file("server"))
   .settings(commonSettings: _*)
@@ -45,3 +55,16 @@ lazy val server = project.in(file("server"))
       "io.circe" %% "circe-parse" % "0.2.1"
     )
   ).dependsOn(raft)
+
+lazy val admin = project.in(file("admin"))
+  .settings(commonSettings: _*)
+  .settings(
+    name := "admin",
+    assemblySettings,
+    jarName in assembly := "admin.jar",
+    libraryDependencies ++= Seq(
+      "org.apache.thrift" % "libthrift" % "0.9.2",
+      "com.twitter" %% "scrooge-core" % "4.3.0",
+      "com.twitter" %% "finagle-thrift" % "6.31.0"
+    )
+  ).dependsOn(common)

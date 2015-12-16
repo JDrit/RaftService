@@ -306,7 +306,6 @@ class RaftServer private(private[raft] val self: Peer,
     log.info(
       s"""current configuration: ${peers.values.map(_.address).mkString(", ")}
          |new configuration: ${servers.mkString(", ")}""".stripMargin)
-
     val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
     val logEntry = LogEntry(currentTerm.get, index, Right(servers))
     broadcastEntry(logEntry)

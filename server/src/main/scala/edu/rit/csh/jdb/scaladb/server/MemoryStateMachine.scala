@@ -1,4 +1,4 @@
-package edu.rit.csh.jdb.server
+package edu.rit.csh.jdb.scaladb.server
 
 import com.twitter.logging.Logger
 import edu.rit.csh.scaladb.raft.{StateMachine, MessageSerializer, Result, Command}

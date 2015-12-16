@@ -2,6 +2,8 @@
 namespace java edu.rit.csh.scaladb.raft
 #@namespace scala edu.rit.csh.scaladb.raft
 
+#include "../../../../../admin.thrift"
+
 typedef i32 Term
 typedef string ServerId
 
