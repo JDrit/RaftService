@@ -2,7 +2,7 @@
 namespace java edu.rit.csh.scaladb.raft
 #@namespace scala edu.rit.csh.scaladb.raft
 
-#include "../../../../../admin.thrift"
+include "admin.thrift"
 
 typedef i32 Term
 typedef string ServerId
@@ -28,12 +28,18 @@ enum EntryType {
     COMMAND
 }
 
+enum Configuration {
+    C_NEW_OLD,
+    C_NEW
+}
+
 struct Entry {
     1: required Term term;
     2: required i32 index;
     3: required EntryType type;
     4: optional string command;
-    5: optional list<string> newConfiguration;
+    5: optional list<admin.Server> newConfiguration;
+    6: optional Configuration configurationType;
 }
 
 struct AppendEntries {
@@ -51,18 +57,9 @@ struct AppendEntriesResponse {
 }
 
 /**
- * Service for all calls by the administrator to the service to get the system's
- * stats and to do configuration management.
- */
-service AdminService {
-    bool changeConfig(1: list<string> servers)
-    string stats();
-}
-
-/**
  * Service calls used for internal service communication
  */
-service internalService extends AdminService {
+service InternalService extends admin.AdminService {
     VoteResponse vote(1: RequestVote request);
     AppendEntriesResponse append(1: AppendEntries entries);
 }

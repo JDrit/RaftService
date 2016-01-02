@@ -68,7 +68,7 @@ object JDBMain extends TwitterServer with Logging {
     }
   }
 
-  def getPid(): Int = ManagementFactory.getRuntimeMXBean().getName.split("@")(0).toInt
+  def getPid: Int = ManagementFactory.getRuntimeMXBean.getName.split("@")(0).toInt
 
   def main(): Unit = {
     implicit val raftServer = RaftServer(new MemoryStateMachine(), addr(), ownAddr(), raftAddrs(), serverAddrs())
@@ -107,18 +107,6 @@ object JDBMain extends TwitterServer with Logging {
       .serve(ownAddr(), api)
 
     log.info("Service finished being initialized")
-
-    /*val bw = new BufferedWriter(new FileWriter(pidFile()))
-    bw.write(getPid().toString)
-    bw.close()
-
-    Runtime.getRuntime.addShutdownHook(new Thread {
-      override def run(): Unit =try {
-        Files.delete(pidFile().toPath)
-      } catch {
-        case ex: Exception => ()
-      }
-    })*/
 
     onExit { server.close() }
     Await.ready(server)

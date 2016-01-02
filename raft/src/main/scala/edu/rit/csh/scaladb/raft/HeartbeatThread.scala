@@ -14,7 +14,7 @@ private[raft] class HeartbeatThread(server: RaftServer) extends Thread {
           while (server.status.get() != ServerType.Leader) {
             this.wait()
           }
-          val (prevLogIndex, prevLogTerm) = server.getPrevInfo()
+          val (prevLogIndex, prevLogTerm) = server.getPrevInfo
           val append = AppendEntries(server.getCurrentTerm(), server.self.address, prevLogIndex,
             prevLogTerm, Seq.empty, server.getCommitIndex())
           server.peers.values.map(_.appendClient(append))

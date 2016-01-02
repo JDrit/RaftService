@@ -1,9 +1,10 @@
 package edu.rit.csh.scaladb.raft
 
-import com.twitter.logging.{Logger, Logging}
-import com.twitter.util.{Try, Future}
+import com.twitter.logging.Logger
+import com.twitter.util.Future
 import edu.rit.csh.scaladb.raft.InternalService.FutureIface
 import edu.rit.csh.scaladb.raft.MessageConverters._
+import edu.rit.csh.scaladb.raft.admin.Server
 
 /**
  * This is the Thrift Finagle service that is used to communicate between the different nodes
@@ -23,31 +24,40 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
    */
   override def vote(requestVote: RequestVote): Future[VoteResponse] = Future {
    serverState.synchronized {
+
      val currentTerm = serverState.getCurrentTerm()
 
-     // If RPC request or response contains term T > currentTerm:
-     // set currentTerm = T, convert to follower
-     if (requestVote.term > currentTerm) {
-       serverState.setTerm(requestVote.term)
-       serverState.toFollower()
-     }
-
-     if (requestVote.term < currentTerm) {
-       log.info(s"voted NO for ${requestVote.candidateId}")
+     // servers disregard RequestVote RPCs when they believe a current leader exists. Specifically,
+     // if a server receives a RequestVote RPC within the minimum election timeout of hearing
+     // from a current leader, it does not update its term or grant its vote
+     if (!serverState.minTimeout()) {
        VoteResponse(term = currentTerm, voteGranted = false)
      } else {
-       val votedFor = serverState.getVotedFor()
-       val commitIndex = serverState.getCommitIndex()
 
-       // Each server will vote for at most one candidate in a
-       // given term, on a first-come-first-served basis
-       if ((votedFor.contains(requestVote.candidateId) || votedFor.isEmpty) && requestVote.lastLogIndex >= commitIndex) {
-         serverState.setVotedFor(requestVote.candidateId) // updates the current voted for
-         log.info(s"voted YES for ${requestVote.candidateId}")
-         VoteResponse(term = currentTerm, voteGranted = true)
-       } else {
+       // If RPC request or response contains term T > currentTerm:
+       // set currentTerm = T, convert to follower
+       if (requestVote.term > currentTerm) {
+         serverState.setTerm(requestVote.term)
+         serverState.toFollower()
+       }
+
+       if (requestVote.term < currentTerm) {
          log.info(s"voted NO for ${requestVote.candidateId}")
          VoteResponse(term = currentTerm, voteGranted = false)
+       } else {
+         val votedFor = serverState.getVotedFor()
+         val commitIndex = serverState.getCommitIndex()
+
+         // Each server will vote for at most one candidate in a
+         // given term, on a first-come-first-served basis
+         if ((votedFor.contains(requestVote.candidateId) || votedFor.isEmpty) && requestVote.lastLogIndex >= commitIndex) {
+           serverState.setVotedFor(requestVote.candidateId) // updates the current voted for
+           log.info(s"voted YES for ${requestVote.candidateId}")
+           VoteResponse(term = currentTerm, voteGranted = true)
+         } else {
+           log.info(s"voted NO for ${requestVote.candidateId}")
+           VoteResponse(term = currentTerm, voteGranted = false)
+         }
        }
      }
    }
@@ -95,7 +105,7 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
       Future.value("")
   }
 
-  override def changeConfig(servers: Seq[String]) = serverState.newConfiguration(servers) match {
+  override def changeConfig(servers: Seq[Server]) = serverState.jointConfiguration(servers) match {
     case SuccessResult(futures) => futures.map(_ => true)
     case NotLeaderResult(leader) => Future.value(false)
   }

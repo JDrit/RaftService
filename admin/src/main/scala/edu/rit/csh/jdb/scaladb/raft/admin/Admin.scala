@@ -2,7 +2,7 @@ package edu.rit.csh.jdb.scaladb.raft.admin
 
 import com.twitter.finagle.Thrift
 import com.twitter.util.Await
-import edu.rit.csh.scaladb.raft.AdminService
+import edu.rit.csh.scaladb.raft.admin.AdminService
 
 object Admin {
 

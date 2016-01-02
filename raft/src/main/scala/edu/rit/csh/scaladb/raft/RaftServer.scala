@@ -12,6 +12,7 @@ import com.twitter.server.TwitterServer
 import com.twitter.util._
 import edu.rit.csh.scaladb.raft.InternalService.FinagledService
 import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
+import edu.rit.csh.scaladb.raft.admin.Server
 import edu.rit.csh.scaladb.raft.util.Scala2Java8._
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
 
@@ -225,10 +226,18 @@ class RaftServer private(private[raft] val self: Peer,
     lastHeartbeat.set(System.nanoTime())
   }
 
+  private[raft] final val minTime = 150
+  private[raft] final val maxTime = 300
+
   /**
    * Gets the duration since the last heartbeat has occurred
    */
-  private[raft] def getLastHeartbeat(): Duration = (System.nanoTime() - lastHeartbeat.get()).nanoseconds
+  private[raft] def getLastHeartbeat: Duration = (System.nanoTime() - lastHeartbeat.get()).nanoseconds
+
+  /**
+   * If there has been a heartbeat from a leader within the minimum election timeout period
+   */
+  private[raft] def minTimeout(): Boolean = System.nanoTime() - lastHeartbeat.get() > minTime
 
   /**
    * The timeout used for when the server should start the election process.
@@ -237,9 +246,9 @@ class RaftServer private(private[raft] val self: Peer,
    * timeouts are chosen randomly from a fixed interval
    * @return the time till the next election should take place
    */
-  private[raft] def electionTimeout(): Duration = (150 + Random.nextInt(300 - 150 + 1)).milliseconds
+  private[raft] def electionTimeout: Duration = (minTime + Random.nextInt(maxTime - minTime + 1)).milliseconds
 
-  private[raft] def getPrevInfo(): (Int, Int) = raftLog.lastOption
+  private[raft] def getPrevInfo: (Int, Int) = raftLog.lastOption
     .map(entry => (entry.index, entry.term))
     .getOrElse((RaftServer.BASE_INDEX, RaftServer.BASE_INDEX))
 
@@ -302,13 +311,40 @@ class RaftServer private(private[raft] val self: Peer,
       }
   }
 
-  private[raft] def newConfiguration(servers: Seq[String]): SubmitResult = this.synchronized {
+  private def changeConfiguration(servers: Seq[Server]): Unit = ???
+
+  private def newConfiguration(servers: Seq[Server]): SubmitResult = this.synchronized {
+    val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
+    val newPeers = servers.map(_.raftUrl)
+    val logEntry = LogEntry(currentTerm.get, index, Right(newPeers))
+    broadcastEntry(logEntry)
+  }
+
+  /**
+   * The leader first creates the Cold,new configuration entry in its log and commits it to
+   * Cold,new (a majority of Cold and a majority of Cnew). Then it creates the Cnew entry and
+   * commits it to a majority of Cnew. There is no point in time in which Cold and Cnew can both
+   * make decisions independently.
+   * @param servers
+   * @return
+   */
+  private[raft] def jointConfiguration(servers: Seq[Server]): SubmitResult = this.synchronized {
     log.info(
       s"""current configuration: ${peers.values.map(_.address).mkString(", ")}
          |new configuration: ${servers.mkString(", ")}""".stripMargin)
     val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
-    val logEntry = LogEntry(currentTerm.get, index, Right(servers))
-    broadcastEntry(logEntry)
+    val jointPeers = (servers.map(_.raftUrl) ++ peers.values.map(_.address)).distinct
+    val logEntry = LogEntry(currentTerm.get, index, Right(jointPeers))
+
+    // When the leader receives a request to change the configuration from Cold
+    // to Cnew, it stores the configuration for joint consensus (Cold,new in the figure) as a
+    // log entry and replicates that entry
+
+    broadcastEntry(logEntry).map(future => future.onSuccess(_ => newConfiguration(servers)))
+
+    // Once a given server adds the new configuration entry to its log, it uses that
+    // configuration for all future decisions (a server always uses the latest configuration
+    // in its log, regardless of whether the entry is committed
   }
 
   /**
@@ -378,7 +414,7 @@ class RaftServer private(private[raft] val self: Peer,
         status.set(ServerType.Leader)
         setLeaderId(self.address)
 
-        val (lastIndex, lastTerm) = getPrevInfo()
+        val (lastIndex, lastTerm) = getPrevInfo
 
         log.info(
           s"""Received enough votes to become leader:
@@ -421,7 +457,7 @@ class RaftServer private(private[raft] val self: Peer,
        |  current_term: ${currentTerm.get()}
        |  state: ${status.get()}
        |  commit_index: ${commitIndex.get()}
-       |  last_log_index: ${getPrevInfo()._1}
+       |  last_log_index: ${getPrevInfo._1}
        |  leader_id: ${leaderId.get().getOrElse("<no one>")}
        |  voted_for: ${votedFor.get().getOrElse("<no one>")}
        |} ${peers.values.mkString(" ")}""".stripMargin
