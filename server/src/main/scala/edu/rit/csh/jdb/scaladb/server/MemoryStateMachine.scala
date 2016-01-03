@@ -1,6 +1,7 @@
 package edu.rit.csh.jdb.scaladb.server
 
 import com.twitter.logging.Logger
+import com.twitter.util.{Future, Time}
 import edu.rit.csh.scaladb.raft.{StateMachine, MessageSerializer, Result, Command}
 
 import scala.collection.mutable
@@ -71,5 +72,10 @@ class MemoryStateMachine extends StateMachine {
         case "append" => Append(split(1), split(2).toInt, split(3), split(4))
       }
     }
+  }
+
+  override def close(deadline: Time): Future[Unit] = {
+    log.info("closing memory state machine")
+    Future.value(Unit)
   }
 }

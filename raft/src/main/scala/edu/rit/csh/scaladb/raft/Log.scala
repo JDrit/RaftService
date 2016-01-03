@@ -21,7 +21,7 @@ private[raft] class Log[T: ClassTag] extends mutable.AbstractBuffer[T] {
    * @return the sequence of the range
    */
   def range(start: Int, end: Int): Seq[T] = lock.synchronized {
-    (start until end).map { index => log.get(index) }
+    (Math.max(0, start) until end).map { index => log.get(index) }
   }
 
   override def apply(n: Int): T = lock.synchronized(log.get(n))

@@ -1,5 +1,6 @@
 package edu.rit.csh.scaladb.raft
 
+import java.net.InetSocketAddress
 import com.twitter.logging.Logger
 import com.twitter.util.Future
 import edu.rit.csh.scaladb.raft.InternalService.FutureIface
@@ -70,16 +71,14 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
       serverState.setHeartbeat(entries.term)
       serverState.setLeaderId(entries.leaderId)
 
-      if (entries.entires.nonEmpty) {
-        log.debug(s"got append of size ${entries.entires.size}")
-      }
-
       // Reply false if term < currentTerm
       if (entries.term < currentTerm) {
+        log.debug(s"failing AppendRPC for #1 reason: $currentTerm, $entries")
         AppendEntriesResponse(term = currentTerm, success = false)
         // Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
       } else if (entries.prevLogIndex != -1 &&
           !serverState.getLogEntry(entries.prevLogIndex).exists(_.term == entries.prevLogTerm)) {
+        log.debug("failing AppendRPC for #2 reason")
         AppendEntriesResponse(term = currentTerm, success = false)
       } else {
         entries.entires.map(thriftToLogEntry).foreach(serverState.appendLog)
@@ -105,8 +104,9 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
       Future.value("")
   }
 
-  override def changeConfig(servers: Seq[Server]) = serverState.jointConfiguration(servers) match {
-    case SuccessResult(futures) => futures.map(_ => true)
-    case NotLeaderResult(leader) => Future.value(false)
-  }
+  override def changeConfig(servers: Seq[Server]): Future[Boolean] =
+    serverState.jointConfiguration(servers.map(MessageConverters.thriftToPeer)) match {
+      case SuccessResult(futures) => futures.map(_ => true)
+      case NotLeaderResult(leader) => Future.value(false)
+    }
 }

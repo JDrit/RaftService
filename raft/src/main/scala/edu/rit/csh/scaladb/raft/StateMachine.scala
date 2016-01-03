@@ -2,6 +2,7 @@ package edu.rit.csh.scaladb.raft
 
 import com.twitter.finagle.stats.{LoadedStatsReceiver, StatsReceiver}
 import com.twitter.logging.Logger
+import com.twitter.util.Closable
 import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
 
 import scala.collection.mutable
@@ -13,7 +14,7 @@ object StateMachine {
 /**
  * Abstract state machine that runs the commands in the Raft algorithm
  */
-abstract class StateMachine {
+abstract class StateMachine extends Closable {
   private val statsReceiver: StatsReceiver = LoadedStatsReceiver
   private val log = Logger.get(getClass)
   private val seenCounter = statsReceiver.scope("raft_service").counter("seen_log_ids")

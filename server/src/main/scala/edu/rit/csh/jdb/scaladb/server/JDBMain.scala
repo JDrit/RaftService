@@ -4,7 +4,6 @@ import java.lang.management.ManagementFactory
 import java.net.InetSocketAddress
 
 import com.twitter.app.Flag
-
 import com.twitter.finagle.param.Stats
 import com.twitter.finagle.Service
 import com.twitter.finagle.Http
@@ -71,7 +70,7 @@ object JDBMain extends TwitterServer with Logging {
   def getPid: Int = ManagementFactory.getRuntimeMXBean.getName.split("@")(0).toInt
 
   def main(): Unit = {
-    implicit val raftServer = RaftServer(new MemoryStateMachine(), addr(), ownAddr(), raftAddrs(), serverAddrs())
+    implicit val raftServer = RaftServer(new MemoryStateMachine(), addr(), ownAddr(), raftAddrs(), serverAddrs(), Seq(this))
 
     val getEndpoint: Endpoint[Json] = get("get" ? getReader) { get: Get =>
       getCounter.incr()
@@ -105,10 +104,9 @@ object JDBMain extends TwitterServer with Logging {
     val server = Http.server
       .configured(Stats(statsReceiver))
       .serve(ownAddr(), api)
-
+    closeOnExit(server)
     log.info("Service finished being initialized")
-
-    onExit { server.close() }
+    onExit { close() }
     Await.ready(server)
   }
 }

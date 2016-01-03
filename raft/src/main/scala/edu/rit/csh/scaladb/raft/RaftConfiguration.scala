@@ -45,26 +45,14 @@ private[raft] class Peer(val inetAddress: InetSocketAddress, val clientAddr: Ine
 
   // index of the next log entry to send to that server (initialized to
   // leader last log index + 1)
-  private val nextIndex = new AtomicInteger(0)
+  val nextIndex = new AtomicInteger(0)
   // index of highest log entry known to be replicated on server
   // (initialized to 0, increases monotonically)
-  private val matchIndex = new AtomicInteger(RaftServer.BASE_INDEX)
+  val matchIndex = new AtomicInteger(RaftServer.BASE_INDEX)
 
-  val voteClient: RequestVote => Future[VoteResponse] = client.vote
+  def voteClient(request: RequestVote): Future[VoteResponse] = client.vote(request)
 
-  val appendClient: AppendEntries => Future[AppendEntriesResponse] = client.append
-
-  val getNextIndex: () => Int = nextIndex.get
-
-  val incNextIndex: () => Int = nextIndex.incrementAndGet
-
-  val decNextIndex: () => Int = nextIndex.decrementAndGet
-
-  val setNextIndex: Int => Unit = nextIndex.set
-
-  val setMatchIndex: Int => Unit = matchIndex.set
-
-  val incMatchIndex: () => Int = matchIndex.incrementAndGet
+  def appendClient(request: AppendEntries): Future[AppendEntriesResponse] = client.append(request)
 
   override def toString: String =
     s"""peer {
@@ -155,7 +143,7 @@ trait MessageSerializer[C <: Command] {
  * @param index the global index in the log of this entry
  * @param cmd the command or configuration change of this server
  */
-private[raft] case class LogEntry(term: Int, index: Int, cmd: Either[String, Seq[String]]) {
+private[raft] case class LogEntry(term: Int, index: Int, cmd: Either[String, Seq[Peer]]) {
 
   override def toString: String =
     s"""entry {
@@ -167,14 +155,22 @@ private[raft] case class LogEntry(term: Int, index: Int, cmd: Either[String, Seq
 
 private[raft] object MessageConverters {
 
+  def thriftToPeer(server: Server): Peer =
+    new Peer(new InetSocketAddress(server.raftAddress, server.raftPort),
+      new InetSocketAddress(server.clientAddress, server.clientPort))
+
+  def peerToThrift(peer: Peer): Server = Server(peer.inetAddress.getHostName,
+    peer.inetAddress.getPort, peer.clientAddr.getHostName, peer.clientAddr.getPort)
+
+
   def thriftToLogEntry(entry: Entry): LogEntry = (entry.command, entry.newConfiguration) match {
     case (Some(cmd), None) => LogEntry(entry.term, entry.index, Left(cmd))
-    case (None, Some(config)) => LogEntry(entry.term, entry.index, Right(config.map(_.raftUrl)))
+    case (None, Some(config)) => LogEntry(entry.term, entry.index, Right(config.map(thriftToPeer)))
     case _ => throw new RuntimeException(s"could not parse Entry to LogEntry $entry")
   }
 
   def logEntryToThrift(logEntry: LogEntry): Entry = logEntry.cmd match {
     case Left(cmd) => Entry(logEntry.term, logEntry.index, EntryType.Command, Some(cmd), None)
-    case Right(config) => Entry(logEntry.term, logEntry.index, EntryType.Configuration, None, Some(config.map(url => Server(url, ""))))
+    case Right(config) => Entry(logEntry.term, logEntry.index, EntryType.Configuration, None, Some(config.map(peerToThrift)))
   }
 }
