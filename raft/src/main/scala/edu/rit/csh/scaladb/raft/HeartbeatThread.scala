@@ -24,7 +24,11 @@ private[raft] class HeartbeatThread(server: RaftServer) extends Closable {
           val (prevLogIndex, prevLogTerm) = server.getPrevInfo
           val append = AppendEntries(server.getCurrentTerm(), server.self.address, prevLogIndex,
             prevLogTerm, Seq.empty, server.getCommitIndex())
-          server.peers.values.map(_.appendClient(append))
+          server.peers.values.map(_.appendClient(append).onSuccess { response =>
+            if (!response.success) {
+              server.getCurrentTerm(response.term)
+            }
+          })
         }
         Thread.sleep(100) // send heartbeat every 100 milliseconds
       }

@@ -16,4 +16,5 @@ struct Server {
 service AdminService {
     bool changeConfig(1: list<Server> servers)
     string stats();
+    void shutdown();
 }

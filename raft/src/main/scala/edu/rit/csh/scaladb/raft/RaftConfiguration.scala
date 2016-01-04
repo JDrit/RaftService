@@ -60,6 +60,13 @@ private[raft] class Peer(val inetAddress: InetSocketAddress, val clientAddr: Ine
        |  nextIndex: $nextIndex
        |  matchIndex: $matchIndex
        |}""".stripMargin
+
+  override def equals(other: Any): Boolean = other match {
+    case other: Peer => other.inetAddress.equals(inetAddress) && other.clientAddr.equals(clientAddr)
+    case _ => false
+  }
+
+  override def hashCode: Int = java.util.Objects.hash(inetAddress, clientAddr)
 }
 
 /**

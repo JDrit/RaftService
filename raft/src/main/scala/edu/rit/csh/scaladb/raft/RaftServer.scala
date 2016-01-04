@@ -88,7 +88,6 @@ class RaftServer private(private[raft] val self: Peer,
   private val commitCounter = statsReceiver.scope("raft_service").counter("log_commits")
   private val electionCounter = statsReceiver.scope("raft_service").counter("elections")
 
-
   // When servers start up, they begin as followers. A server remains in follower state
   // as long as it receives valid RPCs from a leader or candidate
   private[raft] val status = new AtomicReference(ServerType.Follower)
@@ -198,7 +197,6 @@ class RaftServer private(private[raft] val self: Peer,
             peers.changeConfiguration(servers)
             if (!peers.contains(self.address)) {
               log.info("Self has been removed from the cluster, shutting down...")
-              this.exitOnError("Removed from cluster")
             }
         }
       }
@@ -286,6 +284,8 @@ class RaftServer private(private[raft] val self: Peer,
     }
   }
 
+  private[raft] def exit(message: String): Unit = exitOnError(message)
+
   /**f
    * Sends an append request to the peer, retying till the peer returns success.
    * Resents the request if there is a failure sending it, like network partition.
@@ -305,13 +305,14 @@ class RaftServer private(private[raft] val self: Peer,
     peer.appendClient(request)
       .onSuccess { response =>
         log.debug("success")
-        latch.countDown()
         if (response.success) {
+          latch.countDown()
           peer.nextIndex.set(entries.last.index + 1)
           peer.matchIndex.set(entries.last.index + 1)
         } else {
-          log.debug(s"peer ${peer.address} failed the request, trying again")
+          log.info(s"peer ${peer.address} failed the request, trying again")
           peer.nextIndex.decrementAndGet()
+          getCurrentTerm(response.term)
           appendRequest(peer, latch, delay) // try again with lower commit index
         }
       }.rescue { case ex =>
@@ -349,7 +350,6 @@ class RaftServer private(private[raft] val self: Peer,
       s"""current configuration: ${peers.values.map(_.address).mkString(", ")}
          |new configuration: ${servers.mkString(", ")}""".stripMargin)
     val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
-    //val jointPeers = (servers.map(_.raftUrl) ++ peers.values.map(_.address)).distinct
     val jointPeers = (servers ++ peers.values).distinct
     val logEntry = LogEntry(currentTerm.get, index, Right(jointPeers))
 

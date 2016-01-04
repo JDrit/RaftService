@@ -1,6 +1,6 @@
 package edu.rit.csh.scaladb.raft
 
-import java.net.InetSocketAddress
+import com.twitter.conversions.time._
 import com.twitter.logging.Logger
 import com.twitter.util.Future
 import edu.rit.csh.scaladb.raft.InternalService.FutureIface
@@ -73,12 +73,12 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
 
       // Reply false if term < currentTerm
       if (entries.term < currentTerm) {
-        log.debug(s"failing AppendRPC for #1 reason: $currentTerm, $entries")
+        log.info(s"failing AppendRPC for #1 reason: $currentTerm, $entries")
         AppendEntriesResponse(term = currentTerm, success = false)
         // Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
-      } else if (entries.prevLogIndex != -1 &&
+      } else if (entries.prevLogIndex > 0 &&
           !serverState.getLogEntry(entries.prevLogIndex).exists(_.term == entries.prevLogTerm)) {
-        log.debug("failing AppendRPC for #2 reason")
+        log.info(s"failing AppendRPC for #2 reason: $entries")
         AppendEntriesResponse(term = currentTerm, success = false)
       } else {
         entries.entires.map(thriftToLogEntry).foreach(serverState.appendLog)
@@ -109,4 +109,9 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
       case SuccessResult(futures) => futures.map(_ => true)
       case NotLeaderResult(leader) => Future.value(false)
     }
+
+  override def shutdown(): Future[Unit] = {
+    log.info("server told to shut down...")
+    serverState.close(5.seconds).onSuccess(_ => System.exit(0))
+  }
 }
