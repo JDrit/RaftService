@@ -3,6 +3,7 @@ package edu.rit.csh.scaladb.raft
 import com.twitter.conversions.time._
 import com.twitter.logging.Logger
 import com.twitter.util.Future
+import com.twitter.util.JavaTimer
 import edu.rit.csh.scaladb.raft.InternalService.FutureIface
 import edu.rit.csh.scaladb.raft.MessageConverters._
 import edu.rit.csh.scaladb.raft.admin.Server
@@ -98,14 +99,8 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
 
   override def stats(): Future[String] = Future.value(serverState.toString())
 
-  override def changeConfig(servers: Seq[Server]): Future[Boolean] =
-    serverState.jointConfiguration(servers.map(MessageConverters.thriftToPeer)) match {
-      case SuccessResult(futures) => futures.map(_ => true)
-      case NotLeaderResult(leader) => Future.value(false)
-    }
+  override def changeConfig(servers: Seq[Server]): Future[Boolean] = Future.value(
+    serverState.jointConfiguration(servers.map(MessageConverters.thriftToPeer)).isSuccess)
 
-  override def shutdown(): Future[Unit] = {
-    log.info("server told to shut down...")
-    serverState.close(5.seconds).onSuccess(_ => System.exit(0))
-  }
+  override def shutdown(): Future[Unit] = Future(serverState.exit("exiting..."))
 }

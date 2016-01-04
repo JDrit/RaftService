@@ -1,7 +1,6 @@
 package edu.rit.csh.scaladb.raft
 
-import com.twitter.logging.Logger
-import com.twitter.util.{Future, Time, Closable}
+import com.twitter.util.{Future, Time}
 
 /**
  * Thread used to send out the heartbeat to every node in the cluster. This uses a
@@ -9,35 +8,23 @@ import com.twitter.util.{Future, Time, Closable}
  * the messages
  * @param server
  */
-private[raft] class HeartbeatThread(server: RaftServer) extends Closable {
-  private val log = Logger.get(getClass)
-  private val lock = this
-  @volatile private var running = true
+private[raft] class HeartbeatThread(server: RaftServer) {
 
   private val thread = new Thread {
     override def run(): Unit = {
-      while (running) {
-        lock.synchronized {
+      while (true) {
+        this.synchronized {
           while (server.status.get() != ServerType.Leader) {
-            lock.wait()
+            this.wait()
           }
           val (prevLogIndex, prevLogTerm) = server.getPrevInfo
           val append = AppendEntries(server.getCurrentTerm(), server.self.address, prevLogIndex,
             prevLogTerm, Seq.empty, server.getCommitIndex())
-          server.peers.values.map(_.appendClient(append).onSuccess { response =>
-            if (!response.success) {
-              server.getCurrentTerm(response.term)
-            }
-          })
+          server.peers.values.map(_.appendClient(append))
         }
         Thread.sleep(100) // send heartbeat every 100 milliseconds
       }
     }
   }
   thread.start()
-
-  override def close(deadline: Time): Future[Unit] = {
-    running = false
-    Future(thread.join())
-  }
 }

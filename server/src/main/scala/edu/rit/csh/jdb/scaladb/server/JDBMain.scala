@@ -12,6 +12,7 @@ import com.twitter.logging.Logging
 import com.twitter.server.TwitterServer
 import com.twitter.util.{Future, Await}
 import edu.rit.csh.scaladb.raft._
+import edu.rit.csh.scaladb.raft.SubmitMonad._
 import io.circe.{Encoder, Json}
 import io.finch._
 import io.finch.circe._
@@ -47,7 +48,7 @@ object JDBMain extends TwitterServer with Logging {
   }
 
   def process(command: Command)(implicit server: RaftServer): Future[Output[Json]] = server.submit(command) match {
-    case NotLeaderResult(leader) =>
+    case NotLeaderMonad(leader) =>
       val addr = server.getLeader()
         .map(peer => s"http://${peer.clientAddr.getHostName}:${peer.clientAddr.getPort}")
         .getOrElse("")
@@ -59,7 +60,7 @@ object JDBMain extends TwitterServer with Logging {
         case Append(client, id, key, value) =>  Request.queryString(s"$addr/append", ("client", client), ("id", id.toString), ("key", key), ("value", value))
       }
       Future.value(TemporaryRedirect(new Exception()).withHeader(("Location", request)))
-    case SuccessResult(futures) => futures.map {
+    case SuccessMonad(futures) => futures.map {
       case Left(highest) => BadRequest(new Exception(
         Json.obj("message" -> "command has already been seen".asJson,
         "errorCode" -> 101.asJson, "highest" -> highest.asJson).toString()))

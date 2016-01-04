@@ -10,18 +10,13 @@ import com.twitter.finagle.builder.ClientBuilder
 import com.twitter.finagle.filter.MaskCancelFilter
 import com.twitter.finagle.thrift.{ThriftClientFramedCodec, ThriftClientRequest}
 import com.twitter.util.Future
-import edu.rit.csh.scaladb.raft.State.State
 import edu.rit.csh.scaladb.raft.admin.Server
+import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
 import org.apache.thrift.protocol.TBinaryProtocol
 
 private[raft] object ServerType extends Enumeration {
   type ServerType = Value
   val Follower, Leader, Candidate = Value
-}
-
-private[raft] object State extends Enumeration {
-  type State = Value
-  val cOld, cOldNew = Value
 }
 
 /**
@@ -71,23 +66,6 @@ private[raft] class Peer(val inetAddress: InetSocketAddress, val clientAddr: Ine
 }
 
 /**
- * configuration represents the sets of peers and behaviors required to
- * implement joint-consensus.
- * @param state determines if it is the new or old configuration
- * @param cOldPeers the list of old servers
- * @param cNewPeers the list of new servers
- */
-private[raft] case class RaftConfiguration(state: State, cOldPeers: Array[Peer], cNewPeers: Array[Peer]) {
-
-  override def toString: String =
-    s"""configuration {
-       |  state: $state
-       |  old peers: [${cOldPeers.mkString(", ")}]
-       |  new peers: [${cNewPeers.mkString(", ")}]
-       |}""".stripMargin
-}
-
-/**
  * Base class for commands send to the client. The State machine being used has to extend this.
  * The state machine will get called with every new command
  * @param id each command needs to have an unique ID so that the server can make sure
@@ -101,36 +79,37 @@ abstract class Command(val client: String, val id: Int)
  */
 abstract class Result(val id: Int)
 
-/**
- * The result of submitting a command to the server. It either returns a future for the
- * successful completion of the command, the address of the true leader, or a message
- * telling that the command has already been processed
- */
-sealed trait SubmitResult {
-  def flatMap(f: Future[Either[Int, Result]] => SubmitResult): SubmitResult
-  def map(f: Future[Either[Int, Result]] => Future[Either[Int, Result]]): SubmitResult
-  def foreach[U](f: Future[Either[Int, Result]] => U): Unit
-  def isSuccess: Boolean
-  def isFailure: Boolean
-  def getOrElse(f: => Future[Either[Int, Result]]): Future[Either[Int, Result]]
+sealed trait FutureMonad[A] {
+  type M[A] <: FutureMonad[A]
+
+  def flatMap[B](f: Future[A] => M[B]): M[B]
+
+  def unit[B](a: Future[B]): M[B]
+
+  def map[B](f: Future[A] => Future[B]): M[B] = flatMap(x => unit(f(x)))
 }
 
-final case class SuccessResult(future: Future[Either[Int, Result]]) extends SubmitResult {
-  override def flatMap(f: Future[Either[Int, Result]] => SubmitResult) = f(future)
-  override def map(f: Future[Either[Int, Result]] => Future[Either[Int, Result]]): SuccessResult = SuccessResult(f(future))
-  override def foreach[U](f: Future[Either[Int, Result]] => U): Unit = f(future)
-  override def isSuccess: Boolean = true
-  override def isFailure: Boolean = false
-  override def getOrElse(f: => Future[Either[Int, Result]]): Future[Either[Int, Result]] = future
-}
+object SubmitMonad {
 
-final case class NotLeaderResult(leader: String) extends SubmitResult {
-  override def flatMap(f: Future[Either[Int, Result]] => SubmitResult) = this
-  override def map(f: Future[Either[Int, Result]] => Future[Either[Int, Result]]): SubmitResult = this
-  override def foreach[U](f: Future[Either[Int, Result]] => U): Unit = {}
-  override def isSuccess: Boolean = false
-  override def isFailure: Boolean = true
-  override def getOrElse(f: => Future[Either[Int, Result]]): Future[Either[Int, Result]] = f
+  sealed abstract class SubmitMonad[A] extends FutureMonad[A] {
+    type M[A] = SubmitMonad[A]
+
+    def unit[B](a: Future[B]) = SuccessMonad(a)
+
+    override def flatMap[B](f: (Future[A]) => SubmitMonad[B]): SubmitMonad[B] = this match {
+      case SuccessMonad(future) => f(future)
+      case NotLeaderMonad(leader) => NotLeaderMonad(leader)
+    }
+
+    def isSuccess: Boolean = this match {
+      case SuccessMonad(_) => true
+      case _ => false
+    }
+  }
+
+  case class SuccessMonad[A](future: Future[A]) extends SubmitMonad[A]
+
+  case class NotLeaderMonad[A](leader: String) extends SubmitMonad[A]
 }
 
 /**

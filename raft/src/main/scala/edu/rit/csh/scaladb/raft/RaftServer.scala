@@ -12,6 +12,7 @@ import com.twitter.server.TwitterServer
 import com.twitter.util._
 import edu.rit.csh.scaladb.raft.InternalService.FinagledService
 import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
+import edu.rit.csh.scaladb.raft.SubmitMonad._
 import edu.rit.csh.scaladb.raft.util.Scala2Java8._
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
 
@@ -128,7 +129,6 @@ class RaftServer private(private[raft] val self: Peer,
 
   closeOnExit(stateMachine)
   closeOnExit(electionThread)
-  closeOnExit(heartThread)
   closeables.foreach(closeOnExit)
 
   private[raft] def getCurrentTerm(): Int = currentTerm.get
@@ -286,7 +286,7 @@ class RaftServer private(private[raft] val self: Peer,
     }
   }
 
-  private[raft] def exit(message: String): Unit = exitOnError(message)
+  private[raft] val exit: String => Unit = exitOnError
 
   /**f
    * Sends an append request to the peer, retying till the peer returns success.
@@ -336,7 +336,7 @@ class RaftServer private(private[raft] val self: Peer,
    * Broadcasts a log entry with the new configuration of nodes in the system. This should
    * only be called after successfully replicating a log entry with the joint consensus.
    */
-  private def newConfiguration(servers: Seq[Peer]): SubmitResult = this.synchronized {
+  private def newConfiguration(servers: Seq[Peer]): SubmitMonad[CommandResult] = this.synchronized {
     val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
     val logEntry = LogEntry(currentTerm.get, index, Right(servers))
     broadcastEntry(logEntry)
@@ -350,7 +350,7 @@ class RaftServer private(private[raft] val self: Peer,
    * @param servers
    * @return
    */
-  private[raft] def jointConfiguration(servers: Seq[Peer]): SubmitResult = this.synchronized {
+  private[raft] def jointConfiguration(servers: Seq[Peer]): SubmitMonad[CommandResult] = this.synchronized {
     log.info(
       s"""current configuration: ${peers.values.map(_.address).mkString(", ")}
          |new configuration: ${servers.mkString(", ")}""".stripMargin)
@@ -362,7 +362,8 @@ class RaftServer private(private[raft] val self: Peer,
     // to Cnew, it stores the configuration for joint consensus (Cold,new in the figure) as a
     // log entry and replicates that entry
 
-    broadcastEntry(logEntry).map(future => future.onSuccess(_ => newConfiguration(servers)))
+
+    broadcastEntry(logEntry).map(_.onSuccess(_ => newConfiguration(servers)))
 
     // Once a given server adds the new configuration entry to its log, it uses that
     // configuration for all future decisions (a server always uses the latest configuration
@@ -378,15 +379,15 @@ class RaftServer private(private[raft] val self: Peer,
    * @param command the command to run on the replicated state machine
    * @return the future with the result of the computation.
    */
-  def submit(command: Command): SubmitResult = this.synchronized {
+  def submit(command: Command): SubmitMonad[CommandResult] = this.synchronized {
     val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
     val logEntry = LogEntry(currentTerm.get, index, Left(stateMachine.parser.serialize(command)))
     broadcastEntry(logEntry)
   }
 
-  private def broadcastEntry(logEntry: LogEntry): SubmitResult = {
+  private def broadcastEntry(logEntry: LogEntry): SubmitMonad[CommandResult] = {
     if (!isLeader()) {
-      NotLeaderResult(peers(getLeaderId().get).address)
+      NotLeaderMonad(peers(getLeaderId().get).address)
     } else {
       // If command received from client: append entry to local log, respond after
       // entry applied to state machine
@@ -395,7 +396,7 @@ class RaftServer private(private[raft] val self: Peer,
       val futures = peers.values
         .map(peer => appendRequest(peer, latch))
         .toSeq
-      SuccessResult(Future.collect(futures).map(_ => commitLog(logEntry.index)))
+      SuccessMonad(Future.collect(futures).map(_ => commitLog(logEntry.index)))
     }
   }
 
