@@ -54,6 +54,7 @@ struct AppendEntries {
 struct AppendEntriesResponse {
     1: required Term term;     // currentTerm, for leader to update itself
     2: required bool success;  // true if follower contained entry matching prevLogIndex and prevLogTerm
+    3: optional i32 lastIndex; // the index of the last element in the node's log
 }
 
 /**

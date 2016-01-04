@@ -2,6 +2,7 @@ package edu.rit.csh.scaladb.raft
 
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.Objects
 
 import com.twitter.conversions.time._
 import com.twitter.finagle.Service
@@ -57,8 +58,8 @@ private[raft] class Peer(val inetAddress: InetSocketAddress, val clientAddr: Ine
   override def toString: String =
     s"""peer {
        |  address: ${address.toString}
-       |  nextIndex: $nextIndex
-       |  matchIndex: $matchIndex
+       |  next_index: $nextIndex
+       |  match_index: $matchIndex
        |}""".stripMargin
 
   override def equals(other: Any): Boolean = other match {
@@ -66,7 +67,7 @@ private[raft] class Peer(val inetAddress: InetSocketAddress, val clientAddr: Ine
     case _ => false
   }
 
-  override def hashCode: Int = java.util.Objects.hash(inetAddress, clientAddr)
+  override def hashCode: Int = Objects.hash(inetAddress, clientAddr)
 }
 
 /**

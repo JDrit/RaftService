@@ -1,5 +1,6 @@
 package edu.rit.csh.scaladb.raft
 
+import com.twitter.logging.Logger
 import com.twitter.util.{Future, Time, Closable}
 
 /**
@@ -9,10 +10,9 @@ import com.twitter.util.{Future, Time, Closable}
  * @param server
  */
 private[raft] class HeartbeatThread(server: RaftServer) extends Closable {
+  private val log = Logger.get(getClass)
   private val lock = this
-
-  @volatile
-  private var running = true
+  @volatile private var running = true
 
   private val thread = new Thread {
     override def run(): Unit = {

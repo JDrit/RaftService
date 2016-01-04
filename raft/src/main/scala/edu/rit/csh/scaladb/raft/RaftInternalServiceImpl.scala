@@ -74,12 +74,12 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
       // Reply false if term < currentTerm
       if (entries.term < currentTerm) {
         log.info(s"failing AppendRPC for #1 reason: $currentTerm, $entries")
-        AppendEntriesResponse(term = currentTerm, success = false)
+        AppendEntriesResponse(term = currentTerm, success = false, lastIndex = Some(serverState.getLastIndex))
         // Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm
       } else if (entries.prevLogIndex > 0 &&
           !serverState.getLogEntry(entries.prevLogIndex).exists(_.term == entries.prevLogTerm)) {
         log.info(s"failing AppendRPC for #2 reason: $entries")
-        AppendEntriesResponse(term = currentTerm, success = false)
+        AppendEntriesResponse(term = currentTerm, success = false, lastIndex = Some(serverState.getLastIndex))
       } else {
         entries.entires.map(thriftToLogEntry).foreach(serverState.appendLog)
         // If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
@@ -96,13 +96,7 @@ private[raft] class RaftInternalServiceImpl(serverState: RaftServer) extends Fut
     }
   }
 
-  override def stats(): Future[String] = try {
-    Future.value(serverState.toString())
-  } catch {
-    case ex: Exception =>
-      log.error(s"exception while getting stats for server $ex", ex)
-      Future.value("")
-  }
+  override def stats(): Future[String] = Future.value(serverState.toString())
 
   override def changeConfig(servers: Seq[Server]): Future[Boolean] =
     serverState.jointConfiguration(servers.map(MessageConverters.thriftToPeer)) match {

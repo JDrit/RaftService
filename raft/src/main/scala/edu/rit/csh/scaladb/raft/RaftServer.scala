@@ -220,6 +220,8 @@ class RaftServer private(private[raft] val self: Peer,
 
   private[raft] def getLogEntry(index: Int): Option[LogEntry] = raftLog.lift(index)
 
+  private[raft] def getLastIndex: Int = raftLog.size - 1
+
   /**
    * While waiting for votes, a candidate may receive an  AppendEntries RPC from another server
    * claiming to be leader. If the leader’s term (included in its RPC) is at least as large
@@ -311,7 +313,10 @@ class RaftServer private(private[raft] val self: Peer,
           peer.matchIndex.set(entries.last.index + 1)
         } else {
           log.info(s"peer ${peer.address} failed the request, trying again")
-          peer.nextIndex.decrementAndGet()
+          response.lastIndex match {
+            case Some(index) => peer.nextIndex.set(index)
+            case None => peer.nextIndex.decrementAndGet()
+          }
           getCurrentTerm(response.term)
           appendRequest(peer, latch, delay) // try again with lower commit index
         }
