@@ -388,9 +388,8 @@ class RaftServer private(private[raft] val self: Peer,
    */
   def submit(command: Command): SubmitMonad[CommandResult] = this.synchronized {
     val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
-    implicit val buffer = new ByteArrayOutputStream()
+    val buffer = new ByteArrayOutputStream()
     serializer.write(command, buffer)
-    log.info(s"buffer size: ${buffer.size()}")
     val logEntry = LogEntry(currentTerm.get, index, Left(ByteBuffer.wrap(buffer.toByteArray)))
     broadcastEntry(logEntry)
   }

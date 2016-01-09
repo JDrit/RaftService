@@ -11,7 +11,6 @@ object CommandSerializer extends Serializer[Command] {
   def read(buffer: ByteArrayInputStream): Command = {
     val client = Serializer.read[String](buffer)
     val id = Serializer.read[Int](buffer)
-    println(s"$client : $id")
     Serializer.read[Int](buffer) match {
       case 0 => Get(client, id, Serializer.read[String](buffer))
       case 1 => Put(client, id, Serializer.read[String](buffer), Serializer.read[String](buffer))

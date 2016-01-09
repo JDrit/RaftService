@@ -62,34 +62,4 @@ abstract class StateMachine extends Closable {
       Right(compute(command))
     }
   }
-
-  //val serializer: Serializer[Command]
-
-  /*def serialize[C <: Command](cmd: C): ByteBuffer = try {
-    val bao = new ByteArrayOutputStream()
-    val oos = new ObjectOutputStream(bao)
-    oos.writeObject(cmd)
-    oos.close()
-    bao.close()
-    ByteBuffer.wrap(bao.toByteArray)
-  } catch {
-    case ex: Exception =>
-      log.error(s"exception while serializing the data, $ex")
-      ex.printStackTrace()
-      throw ex
-  }
-
-  def deserialize(buffer: ByteBuffer): Command = try {
-    val b = new Array[Byte](buffer.remaining())
-    buffer.get(b)
-    val ois = new ObjectInputStream(new ByteArrayInputStream(b))
-    ois.readObject().asInstanceOf[Command]
-  } catch {
-    case ex: Exception =>
-      log.error(s"exception deserializing the data, $ex")
-      ex.printStackTrace()
-      throw ex
-  }*/
-
-
 }

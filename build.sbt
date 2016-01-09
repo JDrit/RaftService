@@ -59,7 +59,8 @@ lazy val server = project.in(file("server"))
       "com.twitter" % "finagle-stats_2.11" % "6.31.0",
       "io.circe" %% "circe-core" % "0.2.1",
       "io.circe" %% "circe-generic" % "0.2.1",
-      "io.circe" %% "circe-parse" % "0.2.1"
+      "io.circe" %% "circe-parse" % "0.2.1",
+      "org.scalatest" % "scalatest_2.11" % "2.2.6" % "test"
     )
   ).dependsOn(raft)
 
