@@ -37,7 +37,7 @@ struct Entry {
     1: required Term term;
     2: required i32 index;
     3: required EntryType type;
-    4: optional string command;
+    4: optional binary command;
     5: optional list<admin.Server> newConfiguration;
     6: optional Configuration configurationType;
 }

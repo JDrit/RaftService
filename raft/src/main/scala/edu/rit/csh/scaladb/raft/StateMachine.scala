@@ -1,9 +1,14 @@
 package edu.rit.csh.scaladb.raft
 
+import java.io.{ByteArrayInputStream, ObjectInputStream, ByteArrayOutputStream, ObjectOutputStream}
+import java.nio.ByteBuffer
+
+import com.google.common.collect.HashBiMap
 import com.twitter.finagle.stats.{LoadedStatsReceiver, StatsReceiver}
 import com.twitter.logging.Logger
 import com.twitter.util.Closable
 import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
+import edu.rit.csh.scaladb.raft.serialization.Serializer
 
 import scala.collection.mutable
 
@@ -38,12 +43,6 @@ abstract class StateMachine extends Closable {
 
 
   /**
-   * The state machine needs to define the message serializer for the type of
-   * commands that it uses
-   */
-  val parser: MessageSerializer[Command]
-
-  /**
    * Called by the raft server to process a new command, returns the result of the
    * command or the highest seen command ID seen so far. This does not allow for the
    * same command to be run more than once
@@ -54,6 +53,7 @@ abstract class StateMachine extends Closable {
   private[raft] final def process(command: Command): CommandResult = {
     val id = seen.getOrElseUpdate(command.client, -1)
     if (id >= command.id) {
+      log.info(s"already seen id: $id, trying $command")
       seenCounter.incr()
       Left(id)
     } else {
@@ -62,4 +62,34 @@ abstract class StateMachine extends Closable {
       Right(compute(command))
     }
   }
+
+  //val serializer: Serializer[Command]
+
+  /*def serialize[C <: Command](cmd: C): ByteBuffer = try {
+    val bao = new ByteArrayOutputStream()
+    val oos = new ObjectOutputStream(bao)
+    oos.writeObject(cmd)
+    oos.close()
+    bao.close()
+    ByteBuffer.wrap(bao.toByteArray)
+  } catch {
+    case ex: Exception =>
+      log.error(s"exception while serializing the data, $ex")
+      ex.printStackTrace()
+      throw ex
+  }
+
+  def deserialize(buffer: ByteBuffer): Command = try {
+    val b = new Array[Byte](buffer.remaining())
+    buffer.get(b)
+    val ois = new ObjectInputStream(new ByteArrayInputStream(b))
+    ois.readObject().asInstanceOf[Command]
+  } catch {
+    case ex: Exception =>
+      log.error(s"exception deserializing the data, $ex")
+      ex.printStackTrace()
+      throw ex
+  }*/
+
+
 }

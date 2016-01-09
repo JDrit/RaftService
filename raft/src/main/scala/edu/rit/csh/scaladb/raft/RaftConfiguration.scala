@@ -1,6 +1,7 @@
 package edu.rit.csh.scaladb.raft
 
 import java.net.InetSocketAddress
+import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.Objects
 
@@ -71,7 +72,7 @@ private[raft] class Peer(val inetAddress: InetSocketAddress, val clientAddr: Ine
  * @param id each command needs to have an unique ID so that the server can make sure
  *           that the same command will not be executed twice
  */
-abstract class Command(val client: String, val id: Int)
+abstract class Command(val client: String, val id: Int) extends Serializable
 
 /**
  * Base class for the results of commands that have been sent to the server.
@@ -113,24 +114,12 @@ object SubmitMonad {
 }
 
 /**
- * This is the serializer / deserializer that is used to format the commands to send to the
- * state machine
- * @tparam C the type of the command to work on
- */
-trait MessageSerializer[C <: Command] {
-
-  def serialize(command: C): String
-
-  def deserialize(str: String): C
-}
-
-/**
  * Entry in the Raft server's log
  * @param term the term that this entry was added
  * @param index the global index in the log of this entry
  * @param cmd the command or configuration change of this server
  */
-private[raft] case class LogEntry(term: Int, index: Int, cmd: Either[String, Seq[Peer]]) {
+private[raft] case class LogEntry(term: Int, index: Int, cmd: Either[ByteBuffer, Seq[Peer]]) {
 
   override def toString: String =
     s"""entry {

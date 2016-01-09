@@ -71,7 +71,9 @@ object JDBMain extends TwitterServer with Logging {
   def getPid: Int = ManagementFactory.getRuntimeMXBean.getName.split("@")(0).toInt
 
   def main(): Unit = {
-    implicit val raftServer = RaftServer(new MemoryStateMachine(), addr(), ownAddr(), raftAddrs(), serverAddrs(), Seq(this))
+    val stateMachine = new MemoryStateMachine()
+    val serializer = CommandSerializer
+    implicit val raftServer = RaftServer(stateMachine, serializer, addr(), ownAddr(), raftAddrs(), serverAddrs(), Seq(this))
 
     val getEndpoint: Endpoint[Json] = get("get" ? getReader) { get: Get =>
       getCounter.incr()

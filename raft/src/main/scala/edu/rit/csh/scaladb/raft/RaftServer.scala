@@ -1,6 +1,8 @@
 package edu.rit.csh.scaladb.raft
 
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.net.InetSocketAddress
+import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
 
@@ -13,6 +15,7 @@ import com.twitter.util._
 import edu.rit.csh.scaladb.raft.InternalService.FinagledService
 import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
 import edu.rit.csh.scaladb.raft.SubmitMonad._
+import edu.rit.csh.scaladb.raft.serialization.Serializer
 import edu.rit.csh.scaladb.raft.util.Scala2Java8._
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
 
@@ -48,7 +51,7 @@ object RaftServer {
     map
   }
 
-  def apply(stateMachine: StateMachine, address: InetSocketAddress, client: InetSocketAddress,
+  def apply(stateMachine: StateMachine, serializer: Serializer[Command], address: InetSocketAddress, client: InetSocketAddress,
            raftAddrs: Seq[InetSocketAddress], serverAddrs: Seq[InetSocketAddress],
             closeables: Seq[Closable] = Seq.empty): RaftServer = {
     val self = new Peer(address, client)
@@ -56,7 +59,7 @@ object RaftServer {
       .map { case (raft, server) => new Peer(raft, server) }
       .:+(self)
 
-    val raftServer = new RaftServer(self, peers(servers), stateMachine, closeables)
+    val raftServer = new RaftServer(self, peers(servers), stateMachine, serializer, closeables)
     val internalImpl = new RaftInternalServiceImpl(raftServer)
     val internalService = new FinagledService(internalImpl, new Factory())
 
@@ -83,6 +86,7 @@ object RaftServer {
 class RaftServer private(private[raft] val self: Peer,
                          private[raft] val peers: PeerMap,
                          stateMachine: StateMachine,
+                         serializer: Serializer[Command],
                          closeables: Seq[Closable]) extends TwitterServer with Logging {
 
   private val appendCounter = statsReceiver.scope("raft_service").counter("log_appends")
@@ -127,8 +131,10 @@ class RaftServer private(private[raft] val self: Peer,
   private val electionThread = new ElectionThread(this)
   private val heartThread = new HeartbeatThread(this)
 
+  electionThread.start()
+  heartThread.start()
+
   closeOnExit(stateMachine)
-  closeOnExit(electionThread)
   closeables.foreach(closeOnExit)
 
   private[raft] def getCurrentTerm(): Int = currentTerm.get
@@ -191,7 +197,7 @@ class RaftServer private(private[raft] val self: Peer,
         log.info(s"applying log entry #$i: ${raftLog.get(i)}")
         raftLog.get(i).cmd match {
           case Left(cmd) =>
-            result = stateMachine.process(stateMachine.parser.deserialize(cmd))
+            result = stateMachine.process(serializer.read(cmd))
             results.put(i, result)
           case Right(servers) =>
             peers.changeConfiguration(servers)
@@ -274,6 +280,7 @@ class RaftServer private(private[raft] val self: Peer,
    */
   private[raft] def appendLog(entry: LogEntry): Unit = {
     appendCounter.incr()
+    log.info(s"appending log entry: $entry")
     raftLog.lift(entry.index)
       .map(_ => raftLog.set(entry.index, entry))
       .getOrElse(raftLog += entry)
@@ -286,7 +293,7 @@ class RaftServer private(private[raft] val self: Peer,
     }
   }
 
-  private[raft] val exit: String => Unit = exitOnError
+  def exit(msg: String): Unit = exitOnError(msg)
 
   /**f
    * Sends an append request to the peer, retying till the peer returns success.
@@ -381,7 +388,9 @@ class RaftServer private(private[raft] val self: Peer,
    */
   def submit(command: Command): SubmitMonad[CommandResult] = this.synchronized {
     val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
-    val logEntry = LogEntry(currentTerm.get, index, Left(stateMachine.parser.serialize(command)))
+    implicit val buffer = new ByteArrayOutputStream()
+    serializer.write(command)(buffer)
+    val logEntry = LogEntry(currentTerm.get, index, Left(ByteBuffer.wrap(buffer.toByteArray)))
     broadcastEntry(logEntry)
   }
 

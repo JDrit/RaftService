@@ -2,7 +2,7 @@ package edu.rit.csh.jdb.scaladb.server
 
 import com.twitter.logging.Logger
 import com.twitter.util.{Future, Time}
-import edu.rit.csh.scaladb.raft.{StateMachine, MessageSerializer, Result, Command}
+import edu.rit.csh.scaladb.raft.{StateMachine, Result, Command}
 
 import scala.collection.mutable
 
@@ -49,27 +49,6 @@ class MemoryStateMachine extends StateMachine {
         case None =>
           storage.put(key, value)
           AppendResult(id, value)
-      }
-    }
-  }
-
-  val parser = new MessageSerializer[Command] {
-    def serialize(command: Command): String = command match {
-      case Get(client, id, key) => s"get~$client~$id~$key"
-      case Put(client, id, key, value) => s"put~$client~$id~$key~$value"
-      case Delete(client, id, key) => s"delete~$client~$id~$key"
-      case CAS(client, id, key, current, newVal) => s"cas~$client~$id~$key~$current~$newVal"
-      case Append(client, id, key, value) => s"append~$client~$id~$key~$value"
-    }
-
-    def deserialize(str: String): Command = {
-      val split = str.split("~")
-      split(0) match {
-        case "get" => Get(split(1), split(2).toInt, split(3))
-        case "put" => Put(split(1), split(2).toInt, split(3), split(4))
-        case "delete" => Delete(split(1), split(2).toInt, split(3))
-        case "cas" => CAS(split(1), split(2).toInt, split(3), split(4), split(5))
-        case "append" => Append(split(1), split(2).toInt, split(3), split(4))
       }
     }
   }
