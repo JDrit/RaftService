@@ -38,7 +38,8 @@ lazy val raft = project.in(file("raft"))
     name := "raft",
     libraryDependencies ++= Seq(
       "com.twitter" % "twitter-server_2.11" % "1.16.0",
-      "com.twitter" % "finagle-stats_2.11" % "6.31.0"
+      "com.twitter" % "finagle-stats_2.11" % "6.31.0",
+      "org.scalatest" % "scalatest_2.11" % "2.2.6" % "test"
     )
   ).dependsOn(common)
 

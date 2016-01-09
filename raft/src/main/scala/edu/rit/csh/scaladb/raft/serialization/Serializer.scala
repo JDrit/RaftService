@@ -5,21 +5,22 @@ import java.nio.ByteBuffer
 
 abstract class Serializer[T] {
 
-  def read(buffer: ByteBuffer): T = {
-    // Retrieve bytes between the position and limit
+  final def read(buffer: ByteBuffer): T = {
     val bytes = new Array[Byte](buffer.remaining())
     buffer.get(bytes, 0, bytes.length)
     read(new ByteArrayInputStream(bytes))
   }
 
-  def read(implicit buffer: ByteArrayInputStream): T
+  def read(buffer: ByteArrayInputStream): T
 
-  def write(elem: T)(implicit buffer: ByteArrayOutputStream): Unit
+  def write(elem: T, buffer: ByteArrayOutputStream): Unit
+}
 
-  protected def implRead[S](implicit buff: ByteArrayInputStream, ser: Serializer[S]): S = ser.read
+object Serializer {
 
-  protected def implWrite[S](elem: S)(implicit ser: Serializer[S], buf: ByteArrayOutputStream): Unit = ser.write(elem)
+  def read[S](buff: ByteArrayInputStream)(implicit ser: Serializer[S]): S = ser.read(buff)
 
+  def write[S](elem: S, buf: ByteArrayOutputStream)(implicit ser: Serializer[S]): Unit = ser.write(elem, buf)
 }
 
 
