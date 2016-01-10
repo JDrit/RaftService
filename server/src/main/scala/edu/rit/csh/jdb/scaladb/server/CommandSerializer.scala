@@ -9,11 +9,11 @@ import edu.rit.csh.scaladb.raft.Command
 object CommandSerializer extends Serializer[Command] {
   import CommonSerializers._
 
-  val getSer = Serializer.materializeSerializer[Get]
-  val putSer = Serializer.materializeSerializer[Put]
-  val deleteSer = Serializer.materializeSerializer[Delete]
-  val casSer = Serializer.materializeSerializer[CAS]
-  val appendSer = Serializer.materializeSerializer[Append]
+  private val getSer = Serializer.materializeSerializer[Get]
+  private val putSer = Serializer.materializeSerializer[Put]
+  private val deleteSer = Serializer.materializeSerializer[Delete]
+  private val casSer = Serializer.materializeSerializer[CAS]
+  private val appendSer = Serializer.materializeSerializer[Append]
 
   def read(buffer: ByteArrayInputStream): Command = {
     Serializer.read[Byte](buffer) match {

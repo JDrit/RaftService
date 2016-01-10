@@ -11,8 +11,10 @@ class SerializationTest extends FunSuite {
   def serTest[T](elem: T)(implicit ser: Serializer[T]): Unit = {
     val bao = new ByteArrayOutputStream()
     Serializer.write(elem, bao)
-    val bai = new ByteArrayInputStream(bao.toByteArray)
+    val arr = bao.toByteArray
+    val bai = new ByteArrayInputStream(arr)
     assert(elem === Serializer.read(bai))
+    //println(s"$elem = ${arr.length} bytes")
   }
 
   test("Macro Serialization") {
@@ -27,23 +29,41 @@ class SerializationTest extends FunSuite {
   }
 
   test("Int Serialization") {
+    serTest[Int](0)
     serTest[Int](21)
     serTest[Int](-5)
+    serTest[Int](500)
+    serTest[Int](-500)
+    serTest[Int](Int.MaxValue)
+    serTest[Int](Int.MinValue)
   }
 
   test("Long Serialization") {
     serTest[Long](5L)
     serTest[Long](-5L)
+    serTest[Long](0L)
+    serTest[Long](Long.MaxValue)
+    serTest[Long](Long.MinValue)
   }
 
   test("Double Serialization") {
     serTest[Double](2.0)
     serTest[Double](20.5)
     serTest[Double](-20.5)
+    serTest[Double](Double.MaxValue)
+    serTest[Double](Double.MinValue)
+  }
+
+  test("Float Serialization") {
+    serTest[Float](0f)
+    serTest[Float](100f)
+    serTest[Float](-100f)
+    serTest[Float](Float.MaxValue)
+    serTest[Float](Float.MinValue)
   }
 
   test("String Serialization") {
-    serTest[String]("this is a test")
+    serTest[String]("test")
   }
 
   test("Empty String") {
@@ -53,6 +73,10 @@ class SerializationTest extends FunSuite {
   test("Boolean Serialization") {
     serTest[Boolean](true)
     serTest[Boolean](false)
+  }
+
+  test("Range Serialization") {
+    serTest[Range](new Range(0, 200, 2))
   }
 
   test("Option Serialization") {

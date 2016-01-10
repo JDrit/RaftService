@@ -1,7 +1,7 @@
 package edu.rit.csh.scaladb.serialization
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
-import java.lang.{Double => D}
+import java.lang.{Double => D, Float => F}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
@@ -16,24 +16,29 @@ object CommonSerializers {
 
   implicit object IntSerializer extends Serializer[Int] {
     override def read(buffer: ByteArrayInputStream): Int = {
-      var result: Int = 0
-      val input = new Array[Byte](4)
-      buffer.read(input)
-      for (i <- 0 until 4) {
-        result = result << 8
-        result = result | (input(i) & 0xFF)
+      var value = 0
+      var i = 0
+      var b: Int = buffer.read()
+      while ((b & 0x80) != 0) {
+        value |= (b & 0x7F) << i
+        i += 7
+        if (i > 35) {
+          throw new IllegalArgumentException("Variable length quantity is too long")
+        }
+        b = buffer.read()
       }
-      result
+      val raw = value | (b << i)
+      val temp = (((raw << 31) >> 31) ^ raw) >> 1
+      temp ^ (raw & (1 << 31))
     }
 
     override def write(i: Int, buffer: ByteArrayOutputStream): Unit = {
-      var input = i
-      val output = new Array[Byte](4)
-      for (i <- Range(3, -1, -1)) {
-        output(i) = (input & 0xFF).asInstanceOf[Byte]
-        input = input >> 8
+      var value = (i << 1) ^ (i >> 31)
+      while ((value & 0xFFFFFF80) != 0L) {
+        buffer.write((value & 0x7F) | 0x80)
+        value = value >>> 7
       }
-      buffer.write(output)
+      buffer.write(value & 0x7F)
     }
   }
 
@@ -43,39 +48,50 @@ object CommonSerializers {
     override def write(d: Double, buffer: ByteArrayOutputStream): Unit = LongSerializer.write(D.doubleToLongBits(d), buffer)
   }
 
+  implicit object FloatSerializer extends Serializer[Float] {
+    override def read(buffer: ByteArrayInputStream): Float = F.intBitsToFloat(IntSerializer.read(buffer))
+
+    override def write(f: Float,  buffer: ByteArrayOutputStream): Unit = IntSerializer.write(F.floatToIntBits(f), buffer)
+  }
+
   implicit object LongSerializer extends Serializer[Long] {
     override def read(buffer: ByteArrayInputStream): Long = {
-      var result: Long = 0
-      val input = new Array[Byte](8)
-      buffer.read(input)
-      for (i <- 0 until 8) {
-        result = result << 8
-        result = result | (input(i) & 0xFF)
+      var value = 0L
+      var i = 0
+      var b: Long = buffer.read()
+      while ((b & 0x80L) != 0) {
+        value |= (b & 0x7F) << i
+        i += 7
+        if (i > 63) {
+          throw new IllegalArgumentException("Variable length quantity is too long")
+        }
+        b = buffer.read()
       }
-      result
+      val raw = value | (b << i)
+      val temp = (((raw << 63) >> 63) ^ raw) >> 1
+      temp ^ (raw & (1L << 63))
     }
 
     override def write(l: Long, buffer: ByteArrayOutputStream): Unit = {
-      var input = l
-      val output = new Array[Byte](8)
-      for (i <- Range(7, -1, -1)) {
-        output(i) = (input & 0xFF).asInstanceOf[Byte]
-        input = input >> 8
+      var value = (l << 1) ^ (l >> 63)
+      while ((value & 0xFFFFFFFFFFFFFF80L) != 0L) {
+        buffer.write((value & 0x7F).asInstanceOf[Int] | 0x80)
+        value >>>= 7
       }
-      buffer.write(output)
+      buffer.write((value & 0x7F).asInstanceOf[Int])
     }
   }
 
   implicit object StringSerializer extends Serializer[String] {
     override def read(buffer: ByteArrayInputStream): String = {
-      val len = buffer.read()
+      val len = Serializer.read[Int](buffer)
       val bytes = new Array[Byte](len)
       buffer.read(bytes)
       new String(bytes, "UTF-8")
     }
 
     override def write(str: String, buffer: ByteArrayOutputStream): Unit = {
-      buffer.write(str.length)
+      Serializer.write[Int](str.length, buffer)
       buffer.write(str.getBytes)
     }
   }
@@ -88,6 +104,18 @@ object CommonSerializers {
         buf.write(1.asInstanceOf[Byte])
       else
         buf.write(0.asInstanceOf[Byte])
+    }
+  }
+
+  implicit object RangeSerializer extends Serializer[Range] {
+    override def read(buffer: ByteArrayInputStream): Range = {
+      new Range(Serializer.read[Int](buffer), Serializer.read[Int](buffer), Serializer.read[Int](buffer))
+    }
+
+    override def write(elem: Range, buffer: ByteArrayOutputStream): Unit = {
+      Serializer.write[Int](elem.start, buffer)
+      Serializer.write[Int](elem.end, buffer)
+      Serializer.write[Int](elem.step, buffer)
     }
   }
 

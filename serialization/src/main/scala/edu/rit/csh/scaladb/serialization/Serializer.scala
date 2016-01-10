@@ -10,12 +10,11 @@ object Serializer {
 
   def impl[T: c.WeakTypeTag](c: blackbox.Context): c.Tree = {
     import c.universe._
-    val tpe = weakTypeOf[T]
 
+    val tpe = weakTypeOf[T]
     val fields = tpe.decls.collect {
       case sym: MethodSymbol if sym.isGetter => sym
     }.toList
-
 
     def write(fields: List[MethodSymbol]): c.Tree = fields match {
       case Nil => q"Unit"
@@ -39,7 +38,7 @@ object Serializer {
      """
   }
 
-  def materializeSerializer[T]: Serializer[T] = macro impl[T]
+  def materializeSerializer[T <: Product]: Serializer[T] = macro impl[T]
 
   def write[S](elem: S, buf: ByteArrayOutputStream)(implicit ser: Serializer[S]): Unit = ser.write(elem, buf)
 
