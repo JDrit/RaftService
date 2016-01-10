@@ -2,6 +2,7 @@ package edu.rit.csh.scaladb.raft.serialization
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 
+import edu.rit.csh.scaladb.serialization.{Serializer, CommonSerializers}
 import org.scalatest.FunSuite
 import CommonSerializers._
 
@@ -14,8 +15,19 @@ class SerializationTest extends FunSuite {
     assert(elem === Serializer.read(bai))
   }
 
+  test("Macro Serialization") {
+    case class Person(name: String, age: Int, lst: List[Long])
+    implicit val personSerializer = Serializer.materializeSerializer[Person]
+    serTest[Person](Person("jd", 21, List(4L, 5L)))
+  }
+
+  test("Byte Serialization") {
+    serTest[Byte](4)
+    serTest[Byte](0)
+  }
+
   test("Int Serialization") {
-    serTest[Int](5)
+    serTest[Int](21)
     serTest[Int](-5)
   }
 

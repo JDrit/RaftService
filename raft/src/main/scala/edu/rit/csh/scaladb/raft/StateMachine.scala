@@ -8,7 +8,6 @@ import com.twitter.finagle.stats.{LoadedStatsReceiver, StatsReceiver}
 import com.twitter.logging.Logger
 import com.twitter.util.Closable
 import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
-import edu.rit.csh.scaladb.raft.serialization.Serializer
 
 import scala.collection.mutable
 

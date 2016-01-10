@@ -2,47 +2,44 @@ package edu.rit.csh.jdb.scaladb.server
 
 import java.io.{ByteArrayOutputStream, ByteArrayInputStream}
 
+import edu.rit.csh.scaladb.serialization.{CommonSerializers, Serializer}
 import edu.rit.csh.scaladb.raft.Command
-import edu.rit.csh.scaladb.raft.serialization.CommonSerializers._
-import edu.rit.csh.scaladb.raft.serialization.Serializer
+
 
 object CommandSerializer extends Serializer[Command] {
+  import CommonSerializers._
+
+  val getSer = Serializer.materializeSerializer[Get]
+  val putSer = Serializer.materializeSerializer[Put]
+  val deleteSer = Serializer.materializeSerializer[Delete]
+  val casSer = Serializer.materializeSerializer[CAS]
+  val appendSer = Serializer.materializeSerializer[Append]
 
   def read(buffer: ByteArrayInputStream): Command = {
-    val client = Serializer.read[String](buffer)
-    val id = Serializer.read[Int](buffer)
-    Serializer.read[Int](buffer) match {
-      case 0 => Get(client, id, Serializer.read[String](buffer))
-      case 1 => Put(client, id, Serializer.read[String](buffer), Serializer.read[String](buffer))
-      case 2 => Delete(client, id, Serializer.read[String](buffer))
-      case 3 => CAS(client, id, Serializer.read[String](buffer), Serializer.read[String](buffer), Serializer.read[String](buffer))
-      case 4 => Append(client, id, Serializer.read[String](buffer), Serializer.read[String](buffer))
+    Serializer.read[Byte](buffer) match {
+      case 0 => getSer.read(buffer)
+      case 1 => putSer.read(buffer)
+      case 2 => deleteSer.read(buffer)
+      case 3 => casSer.read(buffer)
+      case 4 => appendSer.read(buffer)
     }
   }
 
-  def write(elem: Command, buf: ByteArrayOutputStream): Unit = {
-    Serializer.write[String](elem.client, buf)
-    Serializer.write[Int](elem.id, buf)
-    elem match {
-      case Get(_, _, key) =>
-        Serializer.write(0, buf)
-        Serializer.write(key, buf)
-      case Put(_, _, key, value) =>
-        Serializer.write(1, buf)
-        Serializer.write(key, buf)
-        Serializer.write(value, buf)
-      case Delete(_, _, key) =>
-        Serializer.write(2, buf)
-        Serializer.write(key, buf)
-      case CAS(_, _, key, cur, newVal) =>
-        Serializer.write(3, buf)
-        Serializer.write(key, buf)
-        Serializer.write(cur, buf)
-        Serializer.write(newVal, buf)
-      case Append(_, _, key, value) =>
-        Serializer.write(4, buf)
-        Serializer.write(key, buf)
-        Serializer.write(value, buf)
-    }
+  def write(elem: Command, buffer: ByteArrayOutputStream): Unit = elem match {
+    case g: Get =>
+      Serializer.write[Byte](0, buffer)
+      getSer.write(g, buffer)
+    case p: Put =>
+      Serializer.write[Byte](1, buffer)
+      putSer.write(p, buffer)
+    case d: Delete =>
+      Serializer.write[Byte](2, buffer)
+      deleteSer.write(d, buffer)
+    case c: CAS =>
+      Serializer.write[Byte](3, buffer)
+      casSer.write(c, buffer)
+    case a: Append =>
+      Serializer.write[Byte](4, buffer)
+      appendSer.write(a, buffer)
   }
 }

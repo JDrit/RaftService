@@ -7,6 +7,8 @@ import edu.rit.csh.scaladb.raft.{StateMachine, Result, Command}
 import scala.collection.mutable
 
 case class Get(override val client: String, override val id: Int, key: String) extends Command(client, id)
+
+
 case class Put(override val client: String, override val id: Int, key: String, value: String) extends Command(client, id)
 case class Delete(override val client: String, override val id: Int, key: String) extends Command(client, id)
 case class CAS(override val client: String, override val id: Int, key: String, current: String, newVal: String) extends Command(client, id)

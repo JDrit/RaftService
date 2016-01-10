@@ -1,13 +1,18 @@
-package edu.rit.csh.scaladb.raft.serialization
+package edu.rit.csh.scaladb.serialization
 
-import java.io.{ByteArrayOutputStream, ByteArrayInputStream}
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.lang.{Double => D}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
-import Serializer._
 
 object CommonSerializers {
+
+  implicit object ByteSerializer extends Serializer[Byte] {
+    override def read(buffer: ByteArrayInputStream): Byte = buffer.read().asInstanceOf[Byte]
+
+    override def write(b: Byte, buffer: ByteArrayOutputStream): Unit = buffer.write(b)
+  }
 
   implicit object IntSerializer extends Serializer[Int] {
     override def read(buffer: ByteArrayInputStream): Int = {
@@ -26,7 +31,7 @@ object CommonSerializers {
       val output = new Array[Byte](4)
       for (i <- Range(3, -1, -1)) {
         output(i) = (input & 0xFF).asInstanceOf[Byte]
-        input = input >> 4
+        input = input >> 8
       }
       buffer.write(output)
     }
@@ -155,6 +160,64 @@ object CommonSerializers {
         ser.write(e, buffer)
       case None =>
         Serializer.write(false, buffer)
+    }
+  }
+
+  implicit def tuple2Serializer[T1, T2](implicit t1Ser: Serializer[T1],
+                                        t2Ser:Serializer[T2]) = new Serializer[(T1, T2)] {
+    override def read(buffer: ByteArrayInputStream): (T1, T2) = (t1Ser.read(buffer), t2Ser.read(buffer))
+
+    override def write(elem: (T1, T2), buffer: ByteArrayOutputStream): Unit = {
+      t1Ser.write(elem._1, buffer)
+      t2Ser.write(elem._2, buffer)
+    }
+  }
+
+  implicit def tuple3Serializer[T1, T2, T3](implicit t1Ser: Serializer[T1],
+                                            t2Ser: Serializer[T2],
+                                            t3Ser: Serializer[T3]) = new Serializer[(T1, T2, T3)] {
+    override def read(buffer: ByteArrayInputStream): (T1, T2, T3) = {
+      (t1Ser.read(buffer), t2Ser.read(buffer), t3Ser.read(buffer))
+    }
+
+    override def write(elem: (T1, T2, T3), buffer: ByteArrayOutputStream): Unit = {
+      t1Ser.write(elem._1, buffer)
+      t2Ser.write(elem._2, buffer)
+      t3Ser.write(elem._3, buffer)
+    }
+  }
+
+  implicit def tuple4Serializer[T1, T2, T3, T4](implicit t1Ser: Serializer[T1],
+                                                t2Ser: Serializer[T2],
+                                                t3Ser: Serializer[T3],
+                                                t4Ser: Serializer[T4]) = new Serializer[(T1, T2, T3, T4)] {
+    override def read(buffer: ByteArrayInputStream): (T1, T2, T3, T4) = {
+      (t1Ser.read(buffer), t2Ser.read(buffer), t3Ser.read(buffer), t4Ser.read(buffer))
+    }
+
+    override def write(elem: (T1, T2, T3, T4), buffer: ByteArrayOutputStream): Unit = {
+      t1Ser.write(elem._1, buffer)
+      t2Ser.write(elem._2, buffer)
+      t3Ser.write(elem._3, buffer)
+      t4Ser.write(elem._4, buffer)
+    }
+  }
+
+  implicit def tuple5Serializer[T1, T2, T3, T4, T5](implicit t1Ser: Serializer[T1],
+                                                    t2Ser: Serializer[T2],
+                                                    t3Ser: Serializer[T3],
+                                                    t4Ser: Serializer[T4],
+                                                    t5Ser: Serializer[T5]) = new Serializer[(T1, T2, T3, T4, T5)] {
+    override def read(buffer: ByteArrayInputStream): (T1, T2, T3, T4, T5) = {
+      (t1Ser.read(buffer), t2Ser.read(buffer), t3Ser.read(buffer), t4Ser.read(buffer), t5Ser.read(buffer))
+    }
+
+    override def write(elem: (T1, T2, T3, T4, T5), buffer: ByteArrayOutputStream): Unit = {
+      t1Ser.write(elem._1, buffer)
+      t2Ser.write(elem._2, buffer)
+      t3Ser.write(elem._3, buffer)
+      t4Ser.write(elem._4, buffer)
+      t5Ser.write(elem._5, buffer)
     }
   }
 }

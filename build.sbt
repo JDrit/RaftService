@@ -6,6 +6,8 @@ import sbt.Keys._
 import sbtassembly.Plugin._
 
 lazy val commonSettings = Seq(
+  resolvers += Resolver.sonatypeRepo("snapshots"),
+  resolvers += Resolver.sonatypeRepo("releases"),
   resolvers ++= Seq(
     "sonatype" at "https://oss.sonatype.org/content/groups/public",
     "twttr" at "https://maven.twttr.com"),
@@ -29,6 +31,22 @@ lazy val common = project.in(file("common"))
       base => base / "src/main/thrift"
     })
 
+lazy val macros = project.in(file("macros"))
+  .settings(commonSettings: _*)
+  .settings(libraryDependencies += "org.scala-lang" % "scala-reflect" % "2.11.7")
+  .settings(
+    libraryDependencies := {
+      CrossVersion.partialVersion(scalaVersion.value) match {
+        // if scala 2.11+ is used, quasiquotes are merged into scala-reflect
+        case Some((2, scalaMajor)) if scalaMajor >= 11 => libraryDependencies.value
+        // in Scala 2.10, quasiquotes are provided by macro paradise
+        case Some((2, 10)) => libraryDependencies.value ++ Seq(
+          compilerPlugin("org.scalamacros" % "paradise" % "2.0.0" cross CrossVersion.full),
+          "org.scalamacros" %% "quasiquotes" % "2.0.0" cross CrossVersion.binary)
+      }
+    }
+  )
+
 /**
  * Actual Raft implementation. All internal raft logic is kept in this package.
  */
@@ -39,9 +57,10 @@ lazy val raft = project.in(file("raft"))
     libraryDependencies ++= Seq(
       "com.twitter" % "twitter-server_2.11" % "1.16.0",
       "com.twitter" % "finagle-stats_2.11" % "6.31.0",
-      "org.scalatest" % "scalatest_2.11" % "2.2.6" % "test"
-    )
-  ).dependsOn(common)
+      "org.scalatest" % "scalatest_2.11" % "2.2.6" % "test",
+      "org.scala-lang" % "scala-reflect" % "2.11.7"
+)
+  ).dependsOn(common).dependsOn(macros)
 
 /**
  * Example database siting on top of the raft protocol

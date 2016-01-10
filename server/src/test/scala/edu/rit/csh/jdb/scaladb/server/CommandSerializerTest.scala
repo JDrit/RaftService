@@ -3,7 +3,7 @@ package edu.rit.csh.jdb.scaladb.server
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 
 import edu.rit.csh.scaladb.raft.Command
-import edu.rit.csh.scaladb.raft.serialization.Serializer
+import edu.rit.csh.scaladb.serialization.Serializer
 import org.scalatest.FunSuite
 
 class CommandSerializerTest extends FunSuite {

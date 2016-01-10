@@ -12,10 +12,10 @@ import com.twitter.finagle.thrift.ThriftServerFramedCodec
 import com.twitter.logging.{Logger, Logging}
 import com.twitter.server.TwitterServer
 import com.twitter.util._
+import edu.rit.csh.scaladb.serialization.Serializer
 import edu.rit.csh.scaladb.raft.InternalService.FinagledService
 import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
 import edu.rit.csh.scaladb.raft.SubmitMonad._
-import edu.rit.csh.scaladb.raft.serialization.Serializer
 import edu.rit.csh.scaladb.raft.util.Scala2Java8._
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
 
@@ -390,6 +390,7 @@ class RaftServer private(private[raft] val self: Peer,
     val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
     val buffer = new ByteArrayOutputStream()
     serializer.write(command, buffer)
+    log.info(s"buffer size: ${buffer.toByteArray.length}")
     val logEntry = LogEntry(currentTerm.get, index, Left(ByteBuffer.wrap(buffer.toByteArray)))
     broadcastEntry(logEntry)
   }
