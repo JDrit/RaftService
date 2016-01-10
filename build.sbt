@@ -5,16 +5,19 @@ import sbt._
 import sbt.Keys._
 import sbtassembly.Plugin._
 
+
+val compilerVersion = "2.11.7"
+
 lazy val commonSettings = Seq(
   resolvers += Resolver.sonatypeRepo("snapshots"),
   resolvers += Resolver.sonatypeRepo("releases"),
   resolvers ++= Seq(
     "sonatype" at "https://oss.sonatype.org/content/groups/public",
     "twttr" at "https://maven.twttr.com"),
-  version := "1.0",
-  scalaVersion := "2.11.7",
-  organization := "edu.rit.csh.jdb"
-)
+  version := "0.1",
+  scalaVersion := compilerVersion,
+  organization := "edu.rit.csh.jdb",
+  libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.6" % "test")
 
 /**
  * The Thrift service declarations used for the raft implementation
@@ -31,9 +34,9 @@ lazy val common = project.in(file("common"))
       base => base / "src/main/thrift"
     })
 
-lazy val macros = project.in(file("macros"))
+lazy val serialization = project.in(file("serialization"))
   .settings(commonSettings: _*)
-  .settings(libraryDependencies += "org.scala-lang" % "scala-reflect" % "2.11.7")
+  .settings(libraryDependencies += "org.scala-lang" % "scala-reflect" % compilerVersion)
   .settings(
     libraryDependencies := {
       CrossVersion.partialVersion(scalaVersion.value) match {
@@ -44,8 +47,7 @@ lazy val macros = project.in(file("macros"))
           compilerPlugin("org.scalamacros" % "paradise" % "2.0.0" cross CrossVersion.full),
           "org.scalamacros" %% "quasiquotes" % "2.0.0" cross CrossVersion.binary)
       }
-    }
-  )
+    })
 
 /**
  * Actual Raft implementation. All internal raft logic is kept in this package.
@@ -55,12 +57,10 @@ lazy val raft = project.in(file("raft"))
   .settings(
     name := "raft",
     libraryDependencies ++= Seq(
-      "com.twitter" % "twitter-server_2.11" % "1.16.0",
-      "com.twitter" % "finagle-stats_2.11" % "6.31.0",
-      "org.scalatest" % "scalatest_2.11" % "2.2.6" % "test",
-      "org.scala-lang" % "scala-reflect" % "2.11.7"
-)
-  ).dependsOn(common).dependsOn(macros)
+      "com.twitter" %% "twitter-server" % "1.16.0",
+      "com.twitter" %% "finagle-stats" % "6.31.0"))
+  .dependsOn(common)
+  .dependsOn(serialization)
 
 /**
  * Example database siting on top of the raft protocol
@@ -72,16 +72,14 @@ lazy val server = project.in(file("server"))
     assemblySettings,
     jarName in assembly := "jdb.jar",
     libraryDependencies ++= Seq(
-      "com.github.finagle" % "finch-core_2.11" % "0.9.2",
-      "com.github.finagle" % "finch-circe_2.11" % "0.9.2",
-      "com.twitter" % "twitter-server_2.11" % "1.16.0",
-      "com.twitter" % "finagle-stats_2.11" % "6.31.0",
+      "com.github.finagle" %% "finch-core" % "0.9.2",
+      "com.github.finagle" %% "finch-circe" % "0.9.2",
+      "com.twitter" %% "twitter-server" % "1.16.0",
+      "com.twitter" %% "finagle-stats" % "6.31.0",
       "io.circe" %% "circe-core" % "0.2.1",
       "io.circe" %% "circe-generic" % "0.2.1",
-      "io.circe" %% "circe-parse" % "0.2.1",
-      "org.scalatest" % "scalatest_2.11" % "2.2.6" % "test"
-    )
-  ).dependsOn(raft)
+      "io.circe" %% "circe-parse" % "0.2.1"))
+  .dependsOn(raft)
 
 /**
  * Admin interface to the raft cluster. Used for things like server stats and
@@ -92,5 +90,5 @@ lazy val admin = project.in(file("admin"))
   .settings(
     name := "admin",
     assemblySettings,
-    jarName in assembly := "admin.jar"
-  ).dependsOn(common)
+    jarName in assembly := "admin.jar")
+  .dependsOn(common)
