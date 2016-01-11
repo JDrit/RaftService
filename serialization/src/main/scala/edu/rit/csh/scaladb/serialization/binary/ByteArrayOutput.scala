@@ -4,7 +4,10 @@ import java.io.ByteArrayOutputStream
 
 import edu.rit.csh.scaladb.serialization.Output
 
-class ByteBufferOutput extends Output[Array[Byte], Int] {
+/**
+ * Writes out the binary data to an underlying byte buffer
+ */
+class ByteArrayOutput extends Output[Array[Byte], Int] {
   private val buffer = new ByteArrayOutputStream()
 
   def output: Array[Byte] = buffer.toByteArray

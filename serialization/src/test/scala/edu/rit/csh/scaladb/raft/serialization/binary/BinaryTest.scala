@@ -1,9 +1,7 @@
 package edu.rit.csh.scaladb.raft.serialization.binary
 
-import java.io.ByteArrayInputStream
-
-import edu.rit.csh.scaladb.serialization.binary.{BinarySerializer, ByteBufferInput, ByteBufferOutput}
-import edu.rit.csh.scaladb.serialization.binary.BinarySerializers._
+import edu.rit.csh.scaladb.serialization.binary.{BinarySerializer, ByteArrayInput, ByteArrayOutput}
+import edu.rit.csh.scaladb.serialization.binary.DefaultBinarySerializers._
 import edu.rit.csh.scaladb.serialization.binary.BinaryMacro._
 import org.scalatest.FunSuite
 
@@ -13,9 +11,9 @@ class BinaryTest extends FunSuite {
 
 
   def serTest[T: ClassTag](elem: T)(implicit ser: BinarySerializer[T]): Unit = {
-    val output = new ByteBufferOutput
+    val output = new ByteArrayOutput
     output.serialize(elem)
-    val input = new ByteBufferInput(new ByteArrayInputStream(output.output))
+    val input = new ByteArrayInput(output.output)
     assert(elem === input.deserialize[T])
     println(s"elem = $elem : ${output.output.length} bytes")
   }
@@ -85,12 +83,19 @@ class BinaryTest extends FunSuite {
 
   test("Function Serialization") {
     val test: String => Boolean = (str: String) => str.isEmpty
-    val output = new ByteBufferOutput
+    val output = new ByteArrayOutput
     output.serialize(test)
-    val input = new ByteBufferInput(new ByteArrayInputStream(output.output))
+    val input = new ByteArrayInput(output.output)
     val fun = input.deserialize[String => Boolean]
     assert(fun("") === true)
     assert(fun("fdsa") === false)
+
+    val add: Int => (Int => Int) = (x: Int) => (y: Int) => x + y
+    val output1 = new ByteArrayOutput
+    output1.serialize(add)
+    val input1 = new ByteArrayInput(output1.output)
+    val fun1 = input1.deserialize[Int => Int => Int]
+    assert(add(5)(6) === fun1(5)(6))
   }
 
   test("Option Serialization") {
@@ -128,5 +133,13 @@ class BinaryTest extends FunSuite {
     serTest((1, 2, 3))
     serTest((1, 2, 3, 4))
     serTest((1, 2, 3, 4, 5))
+    serTest((1, 2, 3, 4, 5, 6))
+  }
+
+  test("Implicit Serialization") {
+    import BinarySerializer._
+    val elem: (Int, Int, List[String]) = (1,2, List("String"))
+    val arr = elem.binary()
+    assert(arr.parse[(Int, Int, List[String])] === elem)
   }
 }

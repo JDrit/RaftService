@@ -1,9 +1,7 @@
 package edu.rit.csh.jdb.scaladb.server
 
-import java.io.ByteArrayInputStream
-
 import edu.rit.csh.scaladb.raft.Command
-import edu.rit.csh.scaladb.serialization.binary.{ByteBufferInput, ByteBufferOutput}
+import edu.rit.csh.scaladb.serialization.binary.{ByteArrayInput, ByteArrayOutput}
 import org.scalatest.FunSuite
 
 class CommandSerializerTest extends FunSuite {
@@ -11,9 +9,9 @@ class CommandSerializerTest extends FunSuite {
   implicit val cmdSer = CommandSerializer.CommandSerializer
 
   def serTest(elem: Command): Unit = {
-    val output = new ByteBufferOutput
+    val output = new ByteArrayOutput
     output.serialize(elem)
-    val input = new ByteBufferInput(new ByteArrayInputStream(output.output))
+    val input = new ByteArrayInput(output.output)
     assert(elem === input.deserialize)
   }
 

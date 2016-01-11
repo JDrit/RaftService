@@ -3,6 +3,10 @@ package edu.rit.csh.scaladb.serialization.binary
 import scala.language.experimental.macros
 import scala.reflect.macros.blackbox
 
+/**
+ * Generates BinarySerializers for case classes. This will have compile time failures if
+ * tried to be used on other type of classes
+ */
 object BinaryMacro {
   def impl[T: c.WeakTypeTag](c: blackbox.Context): c.Tree = {
     import c.universe._
@@ -21,12 +25,12 @@ object BinaryMacro {
     }
 
     q"""new BinarySerializer[$tpe] {
-          import edu.rit.csh.scaladb.serialization.binary.BinarySerializers._
-          override def read(buffer: ByteBufferInput): $tpe = {
+          import edu.rit.csh.scaladb.serialization.binary.DefaultBinarySerializers._
+          override def read(buffer: ByteArrayInput): $tpe = {
             new $tpe(..${fields.map(field => q"""buffer.deserialize[$field]""")})
           }
 
-          override def write(elem: $tpe, buffer: ByteBufferOutput): Unit = {
+          override def write(elem: $tpe, buffer: ByteArrayOutput): Unit = {
             ${write(fields)}
           }
        }
