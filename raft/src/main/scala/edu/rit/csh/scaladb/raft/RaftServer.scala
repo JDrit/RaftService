@@ -17,6 +17,7 @@ import edu.rit.csh.scaladb.raft.InternalService.FinagledService
 import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
 import edu.rit.csh.scaladb.raft.SubmitMonad._
 import edu.rit.csh.scaladb.raft.util.Scala2Java8._
+import edu.rit.csh.scaladb.serialization.binary.{ByteBufferOutput, ByteBufferInput, BinarySerializer}
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
 
 import scala.collection.JavaConversions._
@@ -51,7 +52,7 @@ object RaftServer {
     map
   }
 
-  def apply(stateMachine: StateMachine, serializer: Serializer[Command], address: InetSocketAddress, client: InetSocketAddress,
+  def apply(stateMachine: StateMachine, serializer: BinarySerializer[Command], address: InetSocketAddress, client: InetSocketAddress,
            raftAddrs: Seq[InetSocketAddress], serverAddrs: Seq[InetSocketAddress],
             closeables: Seq[Closable] = Seq.empty): RaftServer = {
     val self = new Peer(address, client)
@@ -86,7 +87,7 @@ object RaftServer {
 class RaftServer private(private[raft] val self: Peer,
                          private[raft] val peers: PeerMap,
                          stateMachine: StateMachine,
-                         serializer: Serializer[Command],
+                         serializer: BinarySerializer[Command],
                          closeables: Seq[Closable]) extends TwitterServer with Logging {
 
   private val appendCounter = statsReceiver.scope("raft_service").counter("log_appends")
@@ -197,7 +198,9 @@ class RaftServer private(private[raft] val self: Peer,
         log.info(s"applying log entry #$i: ${raftLog.get(i)}")
         raftLog.get(i).cmd match {
           case Left(cmd) =>
-            result = stateMachine.process(serializer.read(cmd))
+            val bb = new Array[Byte](cmd.remaining())
+            cmd.get(bb)
+            result = stateMachine.process(serializer.read(new ByteBufferInput(new ByteArrayInputStream(bb))))
             results.put(i, result)
           case Right(servers) =>
             peers.changeConfiguration(servers)
@@ -388,10 +391,11 @@ class RaftServer private(private[raft] val self: Peer,
    */
   def submit(command: Command): SubmitMonad[CommandResult] = this.synchronized {
     val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
-    val buffer = new ByteArrayOutputStream()
-    serializer.write(command, buffer)
-    log.info(s"buffer size: ${buffer.toByteArray.length}")
-    val logEntry = LogEntry(currentTerm.get, index, Left(ByteBuffer.wrap(buffer.toByteArray)))
+    val bufferOutput = new ByteBufferOutput()
+    serializer.write(command, bufferOutput)
+    val arr = bufferOutput.output
+    log.debug(s"buffer size: ${arr.length}")
+    val logEntry = LogEntry(currentTerm.get, index, Left(ByteBuffer.wrap(arr)))
     broadcastEntry(logEntry)
   }
 

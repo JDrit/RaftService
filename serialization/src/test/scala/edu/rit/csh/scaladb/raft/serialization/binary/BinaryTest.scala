@@ -1,26 +1,29 @@
-package edu.rit.csh.scaladb.raft.serialization
+package edu.rit.csh.scaladb.raft.serialization.binary
 
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
+import java.io.ByteArrayInputStream
 
-import edu.rit.csh.scaladb.serialization.{Serializer, CommonSerializers}
+import edu.rit.csh.scaladb.serialization.binary.{BinarySerializer, ByteBufferInput, ByteBufferOutput}
+import edu.rit.csh.scaladb.serialization.binary.BinarySerializers._
+import edu.rit.csh.scaladb.serialization.binary.BinaryMacro._
 import org.scalatest.FunSuite
-import CommonSerializers._
 
-class SerializationTest extends FunSuite {
+import scala.reflect.ClassTag
 
-  def serTest[T](elem: T)(implicit ser: Serializer[T]): Unit = {
-    val bao = new ByteArrayOutputStream()
-    Serializer.write(elem, bao)
-    val arr = bao.toByteArray
-    val bai = new ByteArrayInputStream(arr)
-    assert(elem === Serializer.read(bai))
-    //println(s"$elem = ${arr.length} bytes")
+class BinaryTest extends FunSuite {
+
+
+  def serTest[T: ClassTag](elem: T)(implicit ser: BinarySerializer[T]): Unit = {
+    val output = new ByteBufferOutput
+    output.serialize(elem)
+    val input = new ByteBufferInput(new ByteArrayInputStream(output.output))
+    assert(elem === input.deserialize[T])
+    println(s"elem = $elem : ${output.output.length} bytes")
   }
 
   test("Macro Serialization") {
     case class Person(name: String, age: Int, lst: List[Long])
-    implicit val personSerializer = Serializer.materializeSerializer[Person]
-    serTest[Person](Person("jd", 21, List(4L, 5L)))
+    val person = Person("jd", 21, List(4L, 5L))
+    serTest[Person](person)
   }
 
   test("Byte Serialization") {
@@ -79,12 +82,24 @@ class SerializationTest extends FunSuite {
     serTest[Range](new Range(0, 200, 2))
   }
 
+
+  test("Function Serialization") {
+    val test: String => Boolean = (str: String) => str.isEmpty
+    val output = new ByteBufferOutput
+    output.serialize(test)
+    val input = new ByteBufferInput(new ByteArrayInputStream(output.output))
+    val fun = input.deserialize[String => Boolean]
+    assert(fun("") === true)
+    assert(fun("fdsa") === false)
+  }
+
   test("Option Serialization") {
     serTest(Some(5).asInstanceOf[Option[Int]])
     serTest(None.asInstanceOf[Option[Int]])
   }
 
   test("Array Serialization") {
+    serTest[Array[Int]]((0 to 10).toArray)
     serTest[Array[Int]]((0 to 10).toArray)
   }
 
@@ -106,5 +121,12 @@ class SerializationTest extends FunSuite {
   test("Map Serialization") {
     val map = Map(1 -> Some("one"), 2 -> Some("two"), 3 -> None)
     serTest(map)
+  }
+
+  test("Tuples Serialization") {
+    serTest((1, 2))
+    serTest((1, 2, 3))
+    serTest((1, 2, 3, 4))
+    serTest((1, 2, 3, 4, 5))
   }
 }

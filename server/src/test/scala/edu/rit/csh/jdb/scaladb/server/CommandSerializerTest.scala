@@ -1,18 +1,20 @@
 package edu.rit.csh.jdb.scaladb.server
 
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
+import java.io.ByteArrayInputStream
 
 import edu.rit.csh.scaladb.raft.Command
-import edu.rit.csh.scaladb.serialization.Serializer
+import edu.rit.csh.scaladb.serialization.binary.{ByteBufferInput, ByteBufferOutput}
 import org.scalatest.FunSuite
 
 class CommandSerializerTest extends FunSuite {
 
+  implicit val cmdSer = CommandSerializer.CommandSerializer
+
   def serTest(elem: Command): Unit = {
-    val bao = new ByteArrayOutputStream()
-    Serializer.write(elem, bao)(CommandSerializer)
-    val bai = new ByteArrayInputStream(bao.toByteArray)
-    assert(elem === Serializer.read(bai)(CommandSerializer))
+    val output = new ByteBufferOutput
+    output.serialize(elem)
+    val input = new ByteBufferInput(new ByteArrayInputStream(output.output))
+    assert(elem === input.deserialize)
   }
 
   test("Get Serialization") {

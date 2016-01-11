@@ -72,7 +72,7 @@ object JDBMain extends TwitterServer with Logging {
 
   def main(): Unit = {
     val stateMachine = new MemoryStateMachine()
-    val serializer = CommandSerializer
+    val serializer = CommandSerializer.CommandSerializer
     implicit val raftServer = RaftServer(stateMachine, serializer, addr(), ownAddr(), raftAddrs(), serverAddrs(), Seq(this))
 
     val getEndpoint: Endpoint[Json] = get("get" ? getReader) { get: Get =>
