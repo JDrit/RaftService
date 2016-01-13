@@ -1,7 +1,7 @@
 package edu.rit.csh.jdb.scaladb.server
 
 import edu.rit.csh.scaladb.raft.Command
-import edu.rit.csh.scaladb.serialization.binary.{ByteArrayOutput, ByteArrayInput, BinarySerializer}
+import edu.rit.csh.scaladb.serialization.binary.{BinaryMacro, ByteArrayOutput, ByteArrayInput, BinarySerializer}
 import edu.rit.csh.scaladb.serialization.binary.DefaultBinarySerializers._
 import edu.rit.csh.scaladb.serialization.binary.BinaryMacro._
 
@@ -9,6 +9,12 @@ import edu.rit.csh.scaladb.serialization.binary.BinaryMacro._
  * Uses the macro to generate Binary Serializers for each case class
  */
 object CommandSerializer {
+
+  implicit val gSer = BinaryMacro.materializeSerializer[Get]
+  implicit val pSer = BinaryMacro.materializeSerializer[Put]
+  implicit val dSer = BinaryMacro.materializeSerializer[Delete]
+  implicit val aSer = BinaryMacro.materializeSerializer[Append]
+  implicit val cSer = BinaryMacro.materializeSerializer[CAS]
 
   object CommandSerializer extends BinarySerializer[Command] {
 

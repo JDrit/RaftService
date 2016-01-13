@@ -17,3 +17,9 @@ struct ListTest {
 struct MapTest {
     1: required map<string, i32> m;
 }
+
+struct PersonTest {
+    1: required string name;
+    2: required i32 age;
+    3: required double height;
+}

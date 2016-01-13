@@ -41,7 +41,8 @@ lazy val serialization = project.in(file("serialization"))
   .settings(libraryDependencies ++= Seq(
     "org.slf4j" % "slf4j-log4j12" % "1.7.13",
     "org.scala-lang" % "scala-reflect" % compilerVersion,
-    "com.storm-enroute" %% "scalameter" % "0.7"),
+    "com.storm-enroute" %% "scalameter" % "0.7",
+    "com.nativelibs4java" %% "scalaxy-streams" % "0.3.4" % "provided"),
     testFrameworks += new TestFramework("org.scalameter.ScalaMeterFramework"),
     logBuffered := false,
     parallelExecution in Benchmark := false)

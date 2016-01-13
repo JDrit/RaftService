@@ -25,15 +25,14 @@ class ComplexBinaryBenchmark extends Bench.OfflineReport with PrimitiveGenerator
   val people = Gen.crossProduct(integers, strings).map(t => Person(t._2, t._1))
   val tuples = Gen.crossProduct(integers, strings).map(t => (t._1, t._2))
 
-  /*val arrayBytes = arrays.map(_.binary())
+  val arrayBytes = arrays.map(_.binary())
   val listBytes = lists.map(_.binary())
   val setBytes = sets.map(_.binary())
   val personBytes = people.map(_.binary())
   val tupleBytes = tuples.map(_.binary())
-  */
-  
+
   performance of "Complex Serialization" in {
-    /*measure method "arrays" in {
+    measure method "arrays" in {
       using(arrays) in { a => a.binary() }
     }
     measure method "lists" in {
@@ -47,12 +46,12 @@ class ComplexBinaryBenchmark extends Bench.OfflineReport with PrimitiveGenerator
     }
     measure method "tuples" in {
       using(tuples) in { t => t.binary() }
-    }*/
+    }
 
   }
 
   performance of "Complex Deserialization" in {
-    /*measure method "arrays" in {
+    measure method "arrays" in {
       using(arrayBytes) in { a => a.parse[Array[Char]] }
     }
     measure method "lists" in {
@@ -66,6 +65,6 @@ class ComplexBinaryBenchmark extends Bench.OfflineReport with PrimitiveGenerator
     }
     measure method "tuples" in {
       using(tupleBytes) in { t => t.parse[(Int, String)] }
-    }*/
+    }
   }
 }

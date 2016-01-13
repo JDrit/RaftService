@@ -4,8 +4,14 @@ import java.io.{ObjectInputStream, ObjectOutputStream}
 import java.lang.{Double => D, Float => F}
 
 import scala.reflect.ClassTag
+import scala.collection.mutable
+import scala.collection.immutable
+
+import scalaxy.streams.optimize
+import scalaxy.streams.strategy.aggressive
 
 object DefaultBinarySerializers {
+
 
   implicit object ByteSerializer extends BinarySerializer[Byte] {
     override def read(buffer: ByteArrayInput): Byte = buffer.read.toByte
@@ -13,7 +19,7 @@ object DefaultBinarySerializers {
     override def write(b: Byte, buffer: ByteArrayOutput): Unit = buffer.write(b)
   }
 
-  object BasicIntSerializer extends BinarySerializer[Int] {
+  implicit object BasicIntSerializer extends BinarySerializer[Int] {
     override def read(buffer: ByteArrayInput): Int = {
       val bytes = new Array[Byte](4)
       buffer.read(bytes)
@@ -30,7 +36,7 @@ object DefaultBinarySerializers {
     }
   }
 
-  implicit object ZigZagIntSerializer extends BinarySerializer[Int] {
+  object ZigZagIntSerializer extends BinarySerializer[Int] {
     override def read(buffer: ByteArrayInput): Int = {
       var value = 0
       var i = 0
@@ -61,7 +67,7 @@ object DefaultBinarySerializers {
   }
 
   implicit object ZigZagLongSerializer extends BinarySerializer[Long] {
-    override def read(buffer: ByteArrayInput): Long = {
+    override def read(buffer: ByteArrayInput): Long = optimize {
       var value = 0L
       var i = 0
       var b: Long = buffer.read()
@@ -74,7 +80,7 @@ object DefaultBinarySerializers {
       ((((raw << 63) >> 63) ^ raw) >> 1) ^ (raw & (1L << 63))
     }
 
-    override def write(l: Long, buffer: ByteArrayOutput): Unit = {
+    override def write(l: Long, buffer: ByteArrayOutput): Unit = optimize {
       var value = (l << 1) ^ (l >> 63)
       while ((value & 0xFFFFFFFFFFFFFF80L) != 0L) {
         buffer.write((value & 0x7F).asInstanceOf[Int] | 0x80)
@@ -93,7 +99,7 @@ object DefaultBinarySerializers {
   implicit object FloatSerializer extends BinarySerializer[Float] {
     override def read(buffer: ByteArrayInput): Float = F.intBitsToFloat(ZigZagIntSerializer.read(buffer))
 
-    override def write(f: Float,  buffer: ByteArrayOutput): Unit = ZigZagIntSerializer.write(F.floatToIntBits(f), buffer)
+    override def write(f: Float, buffer: ByteArrayOutput): Unit = ZigZagIntSerializer.write(F.floatToIntBits(f), buffer)
   }
 
   implicit object StringSerializer extends BinarySerializer[String] {
@@ -189,18 +195,18 @@ object DefaultBinarySerializers {
   }
 
   implicit def arraySerializer[T: ClassTag](implicit ser: BinarySerializer[T]) = new BinarySerializer[Array[T]] {
-    override def read(buffer: ByteArrayInput): Array[T] = {
+    override def read(buffer: ByteArrayInput): Array[T] = optimize {
       val len = buffer.deserialize[Int]
       val arr = new Array[T](len)
       var i = 0
       while (i < len) {
         arr(i) = ser.read(buffer)
-        i+= 1
+        i += 1
       }
       arr
     }
 
-    override def write(elem: Array[T], buffer: ByteArrayOutput): Unit = {
+    override def write(elem: Array[T], buffer: ByteArrayOutput): Unit = optimize {
       buffer.serialize[Int](elem.length)
       var i = 0
       val len = elem.length
@@ -227,14 +233,14 @@ object DefaultBinarySerializers {
   }
 
   implicit def traversableSerializer[T: ClassTag](implicit ser: BinarySerializer[T]) = new BinarySerializer[Traversable[T]] {
-    override def read(buffer: ByteArrayInput): Traversable[T] = {
+    override def read(buffer: ByteArrayInput): Traversable[T] = optimize {
       val len = buffer.deserialize[Int]
       val arr = new Array[T](len)
       (0 until len).foreach(i => arr(i) = ser.read(buffer))
       arr.toTraversable
     }
 
-    override def write(elem: Traversable[T], buffer: ByteArrayOutput): Unit = {
+    override def write(elem: Traversable[T], buffer: ByteArrayOutput): Unit = optimize {
       buffer.serialize[Int](elem.size)
       elem.foreach(e => ser.write(e, buffer))
     }
@@ -254,14 +260,24 @@ object DefaultBinarySerializers {
   }
 
   implicit def mapSerializer[K, V](implicit keySer: BinarySerializer[K], valSer: BinarySerializer[V]) = new BinarySerializer[Map[K, V]] {
-    override def read(buffer: ByteArrayInput): Map[K, V] =
-      (0 until buffer.deserialize[Int]).map(_ =>(keySer.read(buffer), valSer.read(buffer))).toMap
+    override def read(buffer: ByteArrayInput): Map[K, V] = optimize {
+      val len = buffer.deserialize[Int]
+      var i = 0
+      val b = immutable.Map.newBuilder[K, V]
+      b.sizeHint(len)
+      while (i < len) {
+        b += ((keySer.read(buffer), valSer.read(buffer)))
+        i += 1
+      }
+      b.result()
+    }
 
-    override def write(elem: Map[K, V], buffer: ByteArrayOutput): Unit = {
-      buffer.serialize[Int](elem.size)
-      elem.foreach { case (k, v) =>
-          keySer.write(k, buffer)
-          valSer.write(v, buffer)
+    override def write(elem: Map[K, V], buffer: ByteArrayOutput): Unit = optimize {
+      val len = elem.size
+      buffer.serialize[Int](len)
+      elem.foreach { entry =>
+        keySer.write(entry._1, buffer)
+        valSer.write(entry._2, buffer)
       }
     }
   }
@@ -325,11 +341,11 @@ object DefaultBinarySerializers {
   }
 
   implicit def tuple6Serializer[T1, T2, T3, T4, T5, T6](implicit t1Ser: BinarySerializer[T1],
-                                                    t2Ser: BinarySerializer[T2],
-                                                    t3Ser: BinarySerializer[T3],
-                                                    t4Ser: BinarySerializer[T4],
-                                                    t5Ser: BinarySerializer[T5],
-                                                    t6Ser: BinarySerializer[T6]) = new BinarySerializer[(T1, T2, T3, T4, T5, T6)] {
+                                                        t2Ser: BinarySerializer[T2],
+                                                        t3Ser: BinarySerializer[T3],
+                                                        t4Ser: BinarySerializer[T4],
+                                                        t5Ser: BinarySerializer[T5],
+                                                        t6Ser: BinarySerializer[T6]) = new BinarySerializer[(T1, T2, T3, T4, T5, T6)] {
     override def read(buffer: ByteArrayInput): (T1, T2, T3, T4, T5, T6) = {
       (t1Ser.read(buffer), t2Ser.read(buffer), t3Ser.read(buffer), t4Ser.read(buffer), t5Ser.read(buffer), t6Ser.read(buffer))
     }
