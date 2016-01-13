@@ -3,7 +3,7 @@ package edu.rit.csh.scaladb.serialization.bench
 import java.io.ByteArrayInputStream
 
 import com.twitter.scrooge.ThriftStruct
-import edu.rit.csh.scaladb.serialization.{LongTest, StringTest, IntTest, ListTest}
+import edu.rit.csh.scaladb.serialization.{MapTest, StringTest, IntTest, ListTest}
 import edu.rit.csh.scaladb.serialization.binary.BinarySerializer._
 import edu.rit.csh.scaladb.serialization.binary.BinaryMacro._
 import edu.rit.csh.scaladb.serialization.binary.DefaultBinarySerializers._
@@ -14,8 +14,9 @@ import org.scalameter.api._
 case class StringCase(str: String)
 case class IntCase(int: Int)
 case class ArrayCase(lst: Array[Int])
+case class MapCase(map: Map[String, Int])
 
-class ComparisonBenchmark extends Bench.OfflineReport with PrimitiveGenerators {
+trait ComparisonGenerators extends PrimitiveGenerators {
 
   def thriftToBytes(struct: ThriftStruct): Array[Byte] = {
     val buffer = new TMemoryBuffer(32)
@@ -29,6 +30,8 @@ class ComparisonBenchmark extends Bench.OfflineReport with PrimitiveGenerators {
   val intCase = integers.map(IntCase)
   val listThrift = length.map { len => ListTest(Range(0, len, 1)) }
   val arrayCase = length.map { len => ArrayCase(Range(0, len, 1).toArray) }
+  val mapThrift = maps.map(map => MapTest(map))
+  val mapCase = maps.map(map => MapCase(map))
 
   val stringThriftBytes = stringThrift.map(thriftToBytes)
   val stringCaseBytes = stringCase.map(_.binary())
@@ -36,6 +39,11 @@ class ComparisonBenchmark extends Bench.OfflineReport with PrimitiveGenerators {
   val intCaseBytes = intCase.map(_.binary())
   val listThriftBytes = listThrift.map(thriftToBytes)
   val arrayCaseBytes = arrayCase.map(_.binary())
+  val mapThriftBytes = mapThrift.map(thriftToBytes)
+  val mapCaseBytes = mapCase.map(_.binary())
+}
+
+trait Serialization extends Bench.OfflineReport with ComparisonGenerators {
 
   performance of "Serialization" in {
     measure method "String Thrift" in { using(stringThrift) in thriftToBytes }
@@ -46,7 +54,13 @@ class ComparisonBenchmark extends Bench.OfflineReport with PrimitiveGenerators {
 
     measure method "Array Thrift" in { using(listThrift) in thriftToBytes }
     measure method "Array Case" in { using(arrayCase) in { msg => msg.binary() } }
+
+    measure method "Map Thrift" in { using(mapThrift) in thriftToBytes }
+    measure method "Map Case" in { using(mapCase) in { msg =>msg.binary() } }
   }
+}
+
+trait Deserialization extends Bench.OfflineReport with ComparisonGenerators {
 
   performance of "Deserialization" in {
     measure method "String Thrift" in {
@@ -73,11 +87,21 @@ class ComparisonBenchmark extends Bench.OfflineReport with PrimitiveGenerators {
       }
     }
     measure method "Array Case" in { using(arrayCaseBytes) in { b => b.parse[ArrayCase] } }
-  }
 
+    measure method "Map Thrift" in {
+      using(mapThriftBytes) in { b =>
+        val buffer = new TIOStreamTransport(new ByteArrayInputStream((b)))
+        MapTest.decode(new TBinaryProtocol(buffer))
+      }
+    }
+    measure method "Map Case" in { using(mapCaseBytes) in { b => b.parse[MapCase] } }
+  }
 }
 
-class ComparisonDiskUsage extends ComparisonBenchmark {
-  override lazy val measurer = new DiskUsageMeasurer()
+class ComparisonBenchmark extends Serialization with Deserialization
+class SerializationBenchmark extends Serialization
+class DeserializationBenchmark extends Deserialization
+class ComparisonDiskUsage extends Serialization {
+  override def measurer = new DiskUsageMeasurer()
   override def defaultConfig: Context = Context(exec.independentSamples -> 1)
 }

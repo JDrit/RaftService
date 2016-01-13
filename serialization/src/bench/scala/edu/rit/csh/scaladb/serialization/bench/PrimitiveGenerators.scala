@@ -6,6 +6,8 @@ import org.scalameter.picklers.noPickler._
 
 import org.scalameter.api._
 
+import scala.collection.mutable
+
 trait PrimitiveGenerators {
 
   val length = Gen.range("length")(0, 10000, 1000)
@@ -20,6 +22,15 @@ trait PrimitiveGenerators {
     builder.toString
   }
   val booleans = Gen.enumeration("booleans")(true, false)
+  val maps = length.map { len =>
+    var i = 0
+    val map = mutable.Map.empty[String, Int]
+    while (i < len) {
+      map.put(i.toString, i)
+      i += 1
+    }
+    map.toMap
+  }
 
   val characterBytes = characters.map(_.binary())
   val integerBytes = integers.map(_.binary())
