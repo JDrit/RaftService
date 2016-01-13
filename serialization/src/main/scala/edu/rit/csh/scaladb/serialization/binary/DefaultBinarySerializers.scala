@@ -8,100 +8,112 @@ import scala.reflect.ClassTag
 object DefaultBinarySerializers {
 
   implicit object ByteSerializer extends BinarySerializer[Byte] {
-    override def read(buffer: ByteArrayInput): Byte = buffer.next.asInstanceOf[Byte]
+    override def read(buffer: ByteArrayInput): Byte = buffer.read.toByte
 
-    override def write(b: Byte, buffer: ByteArrayOutput): Unit = buffer.add(b)
+    override def write(b: Byte, buffer: ByteArrayOutput): Unit = buffer.write(b)
   }
 
-  implicit object IntSerializer extends BinarySerializer[Int] {
+  object BasicIntSerializer extends BinarySerializer[Int] {
+    override def read(buffer: ByteArrayInput): Int = {
+      val bytes = new Array[Byte](4)
+      buffer.read(bytes)
+      bytes(0) << 24 | (bytes(1) & 0xFF) << 16 | (bytes(2) & 0xFF) << 8 | (bytes(3) & 0xFF)
+    }
+
+    override def write(elem: Int, buffer: ByteArrayOutput): Unit = {
+      val arr = new Array[Byte](4)
+      arr(0) = (elem >> 24).toByte
+      arr(1) = (elem >> 16).toByte
+      arr(2) = (elem >> 8).toByte
+      arr(3) = elem.toByte
+      buffer.write(arr)
+    }
+  }
+
+  implicit object ZigZagIntSerializer extends BinarySerializer[Int] {
     override def read(buffer: ByteArrayInput): Int = {
       var value = 0
       var i = 0
-      var b: Int = buffer.next
+      var b: Int = buffer.read()
       while ((b & 0x80) != 0) {
         value |= (b & 0x7F) << i
         i += 7
-        if (i > 35) {
-          throw new IllegalArgumentException("Variable length quantity is too long")
-        }
-        b = buffer.next()
+        b = buffer.read()
       }
       val raw = value | (b << i)
-      val temp = (((raw << 31) >> 31) ^ raw) >> 1
-      temp ^ (raw & (1 << 31))
+      ((((raw << 31) >> 31) ^ raw) >> 1) ^ (raw & (1 << 31))
     }
 
     override def write(i: Int, buffer: ByteArrayOutput): Unit = {
       var value = (i << 1) ^ (i >> 31)
       while ((value & 0xFFFFFF80) != 0L) {
-        buffer.add((value & 0x7F) | 0x80)
+        buffer.write((value & 0x7F) | 0x80)
         value = value >>> 7
       }
-      buffer.add(value & 0x7F)
+      buffer.write(value & 0x7F)
     }
   }
 
-  implicit object LongSerializer extends BinarySerializer[Long] {
+  implicit object CharSerializer extends BinarySerializer[Char] {
+    override def read(buffer: ByteArrayInput): Char = buffer.deserialize[Int].toChar
+
+    override def write(elem: Char, buffer: ByteArrayOutput): Unit = buffer.serialize[Int](elem)
+  }
+
+  implicit object ZigZagLongSerializer extends BinarySerializer[Long] {
     override def read(buffer: ByteArrayInput): Long = {
       var value = 0L
       var i = 0
-      var b: Long = buffer.next()
+      var b: Long = buffer.read()
       while ((b & 0x80L) != 0) {
         value |= (b & 0x7F) << i
         i += 7
-        if (i > 63) {
-          throw new IllegalArgumentException("Variable length quantity is too long")
-        }
-        b = buffer.next()
+        b = buffer.read()
       }
       val raw = value | (b << i)
-      val temp = (((raw << 63) >> 63) ^ raw) >> 1
-      temp ^ (raw & (1L << 63))
+      ((((raw << 63) >> 63) ^ raw) >> 1) ^ (raw & (1L << 63))
     }
 
     override def write(l: Long, buffer: ByteArrayOutput): Unit = {
       var value = (l << 1) ^ (l >> 63)
       while ((value & 0xFFFFFFFFFFFFFF80L) != 0L) {
-        buffer.add((value & 0x7F).asInstanceOf[Int] | 0x80)
+        buffer.write((value & 0x7F).asInstanceOf[Int] | 0x80)
         value >>>= 7
       }
-      buffer.add((value & 0x7F).asInstanceOf[Int])
+      buffer.write((value & 0x7F).asInstanceOf[Int])
     }
   }
 
   implicit object DoubleSerializer extends BinarySerializer[Double] {
-    override def read(buffer: ByteArrayInput): Double = D.longBitsToDouble(LongSerializer.read(buffer))
+    override def read(buffer: ByteArrayInput): Double = D.longBitsToDouble(ZigZagLongSerializer.read(buffer))
 
-    override def write(d: Double, buffer: ByteArrayOutput): Unit = LongSerializer.write(D.doubleToLongBits(d), buffer)
+    override def write(d: Double, buffer: ByteArrayOutput): Unit = ZigZagLongSerializer.write(D.doubleToLongBits(d), buffer)
   }
 
   implicit object FloatSerializer extends BinarySerializer[Float] {
-    override def read(buffer: ByteArrayInput): Float = F.intBitsToFloat(IntSerializer.read(buffer))
+    override def read(buffer: ByteArrayInput): Float = F.intBitsToFloat(ZigZagIntSerializer.read(buffer))
 
-    override def write(f: Float,  buffer: ByteArrayOutput): Unit = IntSerializer.write(F.floatToIntBits(f), buffer)
+    override def write(f: Float,  buffer: ByteArrayOutput): Unit = ZigZagIntSerializer.write(F.floatToIntBits(f), buffer)
   }
 
   implicit object StringSerializer extends BinarySerializer[String] {
     override def read(buffer: ByteArrayInput): String = {
-      //val len = Serializer.read[Int](buffer)
       val len = buffer.deserialize[Int]
-      val bytes = new Array[Int](len)
-      buffer.nextArray(bytes)
-      new String(bytes.map(_.toByte), "UTF-8")
+      val str = new String(buffer.buffer, buffer.index, len, "UTF-8")
+      buffer.index += len
+      str
     }
 
     override def write(str: String, buffer: ByteArrayOutput): Unit = {
-      //Serializer.write[Int](str.length, buffer)
-      //buffer.write(str.getBytes)
       buffer.serialize[Int](str.length)
-      buffer.addArray(str.getBytes.map(_.toInt))
+      buffer.write(str.getBytes)
     }
   }
 
   implicit object BooleanSerializer extends BinarySerializer[Boolean] {
-    override def read(buf: ByteArrayInput): Boolean = buf.next() == 1
+    override def read(buf: ByteArrayInput): Boolean = buf.read() == 1
 
-    override def write(bool: Boolean, buf: ByteArrayOutput): Unit = buf.add(if (bool) 1 else 0)
+    override def write(bool: Boolean, buf: ByteArrayOutput): Unit = buf.write(if (bool) 1 else 0)
   }
 
   implicit def function1Serializer[A, R] = new BinarySerializer[A => R] {
@@ -180,13 +192,22 @@ object DefaultBinarySerializers {
     override def read(buffer: ByteArrayInput): Array[T] = {
       val len = buffer.deserialize[Int]
       val arr = new Array[T](len)
-      (0 until len).foreach(i => arr(i) = ser.read(buffer))
+      var i = 0
+      while (i < len) {
+        arr(i) = ser.read(buffer)
+        i+= 1
+      }
       arr
     }
 
     override def write(elem: Array[T], buffer: ByteArrayOutput): Unit = {
-      buffer.serialize(elem.length)
-      elem.foreach(e => ser.write(e, buffer))
+      buffer.serialize[Int](elem.length)
+      var i = 0
+      val len = elem.length
+      while (i < len) {
+        ser.write(elem(i), buffer)
+        i += 1
+      }
     }
   }
 

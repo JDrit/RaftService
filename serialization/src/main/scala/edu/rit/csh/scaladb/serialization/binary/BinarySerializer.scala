@@ -1,7 +1,5 @@
 package edu.rit.csh.scaladb.serialization.binary
 
-import java.io.ByteArrayInputStream
-
 import edu.rit.csh.scaladb.serialization.Serializer
 
 abstract class BinarySerializer[T] extends Serializer[T, ByteArrayInput, ByteArrayOutput]

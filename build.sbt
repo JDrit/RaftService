@@ -22,7 +22,7 @@ lazy val commonSettings = Seq(
 /**
  * The Thrift service declarations used for the raft implementation
  */
-lazy val common = project.in(file("common"))
+lazy val thrift = project.in(file("common"))
   .settings(commonSettings: _*)
   .settings(
     libraryDependencies ++= Seq(
@@ -34,9 +34,17 @@ lazy val common = project.in(file("common"))
       base => base / "src/main/thrift"
     })
 
+lazy val Benchmark = config("bench") extend Test
+
 lazy val serialization = project.in(file("serialization"))
   .settings(commonSettings: _*)
-  .settings(libraryDependencies += "org.scala-lang" % "scala-reflect" % compilerVersion)
+  .settings(libraryDependencies ++= Seq(
+    "org.slf4j" % "slf4j-log4j12" % "1.7.13",
+    "org.scala-lang" % "scala-reflect" % compilerVersion,
+    "com.storm-enroute" %% "scalameter" % "0.7"),
+    testFrameworks += new TestFramework("org.scalameter.ScalaMeterFramework"),
+    logBuffered := false,
+    parallelExecution in Benchmark := false)
   .settings(
     libraryDependencies := {
       CrossVersion.partialVersion(scalaVersion.value) match {
@@ -48,6 +56,17 @@ lazy val serialization = project.in(file("serialization"))
           "org.scalamacros" %% "quasiquotes" % "2.0.0" cross CrossVersion.binary)
       }
     })
+  .settings(
+    libraryDependencies ++= Seq(
+      "org.apache.thrift" % "libthrift" % "0.9.2",
+      "com.twitter" %% "scrooge-core" % "4.3.0",
+      "com.twitter" %% "finagle-thrift" % "6.31.0"
+    ),
+    scroogeThriftSourceFolder in Compile <<= baseDirectory {
+      base => base / "src/bench/thrift"
+    })
+  .configs(Benchmark)
+  .settings(inConfig(Benchmark)(Defaults.testSettings): _*)
 
 /**
  * Actual Raft implementation. All internal raft logic is kept in this package.
@@ -59,7 +78,7 @@ lazy val raft = project.in(file("raft"))
     libraryDependencies ++= Seq(
       "com.twitter" %% "twitter-server" % "1.16.0",
       "com.twitter" %% "finagle-stats" % "6.31.0"))
-  .dependsOn(common)
+  .dependsOn(thrift)
   .dependsOn(serialization)
 
 /**
@@ -91,4 +110,4 @@ lazy val admin = project.in(file("admin"))
     name := "admin",
     assemblySettings,
     jarName in assembly := "admin.jar")
-  .dependsOn(common)
+  .dependsOn(thrift)

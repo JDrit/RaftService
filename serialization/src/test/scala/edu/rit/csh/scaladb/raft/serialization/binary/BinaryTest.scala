@@ -1,7 +1,8 @@
 package edu.rit.csh.scaladb.raft.serialization.binary
 
-import edu.rit.csh.scaladb.serialization.binary.{BinarySerializer, ByteArrayInput, ByteArrayOutput}
+import edu.rit.csh.scaladb.serialization.binary.{BinaryMacro, BinarySerializer, ByteArrayInput, ByteArrayOutput}
 import edu.rit.csh.scaladb.serialization.binary.DefaultBinarySerializers._
+import BinarySerializer._
 import edu.rit.csh.scaladb.serialization.binary.BinaryMacro._
 import org.scalatest.FunSuite
 
@@ -9,14 +10,7 @@ import scala.reflect.ClassTag
 
 class BinaryTest extends FunSuite {
 
-
-  def serTest[T: ClassTag](elem: T)(implicit ser: BinarySerializer[T]): Unit = {
-    val output = new ByteArrayOutput
-    output.serialize(elem)
-    val input = new ByteArrayInput(output.output)
-    assert(elem === input.deserialize[T])
-    println(s"elem = $elem : ${output.output.length} bytes")
-  }
+  def serTest[T: ClassTag](elem: T)(implicit ser: BinarySerializer[T]): Unit = assert(elem === elem.binary().parse[T])
 
   test("Macro Serialization") {
     case class Person(name: String, age: Int, lst: List[Long])
@@ -25,8 +19,15 @@ class BinaryTest extends FunSuite {
   }
 
   test("Byte Serialization") {
-    serTest[Byte](4)
-    serTest[Byte](0)
+    (Byte.MinValue.toInt to Byte.MaxValue.toInt).foreach { b =>
+      serTest[Byte](b.toByte)
+    }
+  }
+
+  test("Char Serialization") {
+    (Char.MinValue to Char.MaxValue).foreach { c =>
+      serTest[Char](c)
+    }
   }
 
   test("Int Serialization") {
@@ -137,7 +138,6 @@ class BinaryTest extends FunSuite {
   }
 
   test("Implicit Serialization") {
-    import BinarySerializer._
     val elem: (Int, Int, List[String]) = (1,2, List("String"))
     val arr = elem.binary()
     assert(arr.parse[(Int, Int, List[String])] === elem)

@@ -12,7 +12,7 @@ class ByteArrayOutput extends Output[Array[Byte], Int] {
 
   def output: Array[Byte] = buffer.toByteArray
 
-  def add(b: Int): Unit = buffer.write(b)
+  override def write(b: Array[Byte], off: Int, len: Int): Unit = buffer.write(b, off, len)
 
   def serialize[T](elem: T)(implicit ser: BinarySerializer[T]): Unit = ser.write(elem, this)
 
