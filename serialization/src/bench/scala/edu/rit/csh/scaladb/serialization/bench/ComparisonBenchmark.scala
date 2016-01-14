@@ -2,7 +2,7 @@ package edu.rit.csh.scaladb.serialization.bench
 
 import java.io.ByteArrayInputStream
 
-import com.twitter.scrooge.ThriftStruct
+import com.twitter.scrooge.{ThriftStructCodec3, ThriftStruct}
 import edu.rit.csh.scaladb.serialization.{MapTest, StringTest, IntTest, ListTest, PersonTest}
 import edu.rit.csh.scaladb.serialization.binary.BinarySerializer._
 import edu.rit.csh.scaladb.serialization.binary.BinaryMacro._
@@ -23,9 +23,14 @@ trait ComparisonGenerators extends PrimitiveGenerators {
 
   def thriftToBytes(struct: ThriftStruct): Array[Byte] = {
     val buffer = new TMemoryBuffer(32)
-    //struct.write(new TBinaryProtocol(buffer))
     struct.write(new TCompactProtocol(buffer))
     buffer.getArray
+  }
+
+  @inline
+  def bytesToThrift[T <: ThriftStruct](obj: ThriftStructCodec3[T], b: Array[Byte]): T = {
+    val buffer = new TIOStreamTransport(new ByteArrayInputStream((b)))
+    obj.decode(new TCompactProtocol(buffer))
   }
 
   val stringThrift = strings.map(string => StringTest(string))
@@ -33,6 +38,7 @@ trait ComparisonGenerators extends PrimitiveGenerators {
   val intThrift = integers.map(int => IntTest(int))
   val intCase = integers.map(IntCase)
   val listThrift = length.map { len => ListTest(Range(0, len, 1)) }
+  val listCase = length.map { len => ListCase(Range(0, len).toList) }
   val arrayCase = length.map { len => ArrayCase(Range(0, len, 1).toArray) }
   val mapThrift = maps.map(map => MapTest(map))
   val mapCase = maps.map(map => MapCase(map))
@@ -48,6 +54,7 @@ trait ComparisonGenerators extends PrimitiveGenerators {
   val intThriftBytes = intThrift.map(thriftToBytes)
   val intCaseBytes = intCase.map(_.binary())
   val listThriftBytes = listThrift.map(thriftToBytes)
+  val listCaseBytes = listThrift.map(thriftToBytes)
   val arrayCaseBytes = arrayCase.map(_.binary())
   val mapThriftBytes = mapThrift.map(thriftToBytes)
   val mapCaseBytes = mapCase.map(_.binary())
@@ -62,7 +69,8 @@ trait Serialization extends Bench.OfflineReport with ComparisonGenerators {
     measure method "Int Thrift" in { using(intThrift) in thriftToBytes }
     measure method "Int Case" in { using(intCase) in { msg => msg.binary() } }
 
-    measure method "Array Thrift" in { using(listThrift) in thriftToBytes }
+    measure method "List Thrift" in { using(listThrift) in thriftToBytes }
+    measure method "List Case" in { using(arrayCase) in { msg => msg.binary() } }
     measure method "Array Case" in { using(arrayCase) in { msg => msg.binary() } }
 
     measure method "Map Thrift" in { using(mapThrift) in thriftToBytes }
@@ -77,37 +85,17 @@ trait Serialization extends Bench.OfflineReport with ComparisonGenerators {
 trait Deserialization extends Bench.OfflineReport with ComparisonGenerators {
 
   performance of "Deserialization" in {
-    measure method "String Thrift" in {
-      using(stringThriftBytes) in { b =>
-        val buffer = new TIOStreamTransport(new ByteArrayInputStream((b)))
-        StringTest.decode(new TCompactProtocol(buffer))
-      }
-    }
-    measure method "String Case" in { using(stringCaseBytes) in { b => b.parse[StringCase] }
-    }
+    measure method "String Thrift" in { using(stringThriftBytes) in { b => bytesToThrift(StringTest, b) } }
+    measure method "String Case" in { using(stringCaseBytes) in { b => b.parse[StringCase] } }
 
-    measure method "Int Thrift" in {
-      using(intThriftBytes) in { b =>
-        val buffer = new TIOStreamTransport(new ByteArrayInputStream((b)))
-        IntTest.decode(new TCompactProtocol(buffer))
-      }
-    }
+    measure method "Int Thrift" in { using(intThriftBytes) in { b => bytesToThrift(IntTest, b) } }
     measure method "Int Case" in { using(intThriftBytes) in { b => b.parse[IntCase] } }
 
-    measure method "Array Thrift" in {
-      using(listThriftBytes) in { b =>
-        val buffer = new TIOStreamTransport(new ByteArrayInputStream((b)))
-        ListTest.decode(new TCompactProtocol(buffer))
-      }
-    }
+    measure method "List Thrift" in { using(listThriftBytes) in { b => bytesToThrift(ListTest, b) } }
+    measure method "List Case" in { using(listCaseBytes) in { b => b.parse[ListCase] } }
     measure method "Array Case" in { using(arrayCaseBytes) in { b => b.parse[ArrayCase] } }
 
-    measure method "Map Thrift" in {
-      using(mapThriftBytes) in { b =>
-        val buffer = new TIOStreamTransport(new ByteArrayInputStream((b)))
-        MapTest.decode(new TCompactProtocol(buffer))
-      }
-    }
+    measure method "Map Thrift" in { using(mapThriftBytes) in { b => bytesToThrift(MapTest, b) } }
     measure method "Map Case" in { using(mapCaseBytes) in { b => b.parse[MapCase] } }
   }
 }

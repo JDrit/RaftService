@@ -4,11 +4,7 @@ import java.io.{ObjectInputStream, ObjectOutputStream}
 import java.lang.{Double => D, Float => F}
 
 import scala.reflect.ClassTag
-import scala.collection.mutable
 import scala.collection.immutable
-
-import scalaxy.streams.optimize
-import scalaxy.streams.strategy.aggressive
 
 object DefaultBinarySerializers {
 
@@ -67,7 +63,7 @@ object DefaultBinarySerializers {
   }
 
   implicit object ZigZagLongSerializer extends BinarySerializer[Long] {
-    override def read(buffer: ByteArrayInput): Long = optimize {
+    override def read(buffer: ByteArrayInput): Long = {
       var value = 0L
       var i = 0
       var b: Long = buffer.read()
@@ -80,7 +76,7 @@ object DefaultBinarySerializers {
       ((((raw << 63) >> 63) ^ raw) >> 1) ^ (raw & (1L << 63))
     }
 
-    override def write(l: Long, buffer: ByteArrayOutput): Unit = optimize {
+    override def write(l: Long, buffer: ByteArrayOutput): Unit = {
       var value = (l << 1) ^ (l >> 63)
       while ((value & 0xFFFFFFFFFFFFFF80L) != 0L) {
         buffer.write((value & 0x7F).asInstanceOf[Int] | 0x80)
@@ -195,7 +191,7 @@ object DefaultBinarySerializers {
   }
 
   implicit def arraySerializer[T: ClassTag](implicit ser: BinarySerializer[T]) = new BinarySerializer[Array[T]] {
-    override def read(buffer: ByteArrayInput): Array[T] = optimize {
+    override def read(buffer: ByteArrayInput): Array[T] = {
       val len = buffer.deserialize[Int]
       val arr = new Array[T](len)
       var i = 0
@@ -206,7 +202,7 @@ object DefaultBinarySerializers {
       arr
     }
 
-    override def write(elem: Array[T], buffer: ByteArrayOutput): Unit = optimize {
+    override def write(elem: Array[T], buffer: ByteArrayOutput): Unit = {
       buffer.serialize[Int](elem.length)
       var i = 0
       val len = elem.length
@@ -233,14 +229,14 @@ object DefaultBinarySerializers {
   }
 
   implicit def traversableSerializer[T: ClassTag](implicit ser: BinarySerializer[T]) = new BinarySerializer[Traversable[T]] {
-    override def read(buffer: ByteArrayInput): Traversable[T] = optimize {
+    override def read(buffer: ByteArrayInput): Traversable[T] = {
       val len = buffer.deserialize[Int]
       val arr = new Array[T](len)
       (0 until len).foreach(i => arr(i) = ser.read(buffer))
       arr.toTraversable
     }
 
-    override def write(elem: Traversable[T], buffer: ByteArrayOutput): Unit = optimize {
+    override def write(elem: Traversable[T], buffer: ByteArrayOutput): Unit = {
       buffer.serialize[Int](elem.size)
       elem.foreach(e => ser.write(e, buffer))
     }
@@ -260,7 +256,7 @@ object DefaultBinarySerializers {
   }
 
   implicit def mapSerializer[K, V](implicit keySer: BinarySerializer[K], valSer: BinarySerializer[V]) = new BinarySerializer[Map[K, V]] {
-    override def read(buffer: ByteArrayInput): Map[K, V] = optimize {
+    override def read(buffer: ByteArrayInput): Map[K, V] = {
       val len = buffer.deserialize[Int]
       var i = 0
       val b = immutable.Map.newBuilder[K, V]
@@ -272,7 +268,7 @@ object DefaultBinarySerializers {
       b.result()
     }
 
-    override def write(elem: Map[K, V], buffer: ByteArrayOutput): Unit = optimize {
+    override def write(elem: Map[K, V], buffer: ByteArrayOutput): Unit = {
       val len = elem.size
       buffer.serialize[Int](len)
       elem.foreach { entry =>

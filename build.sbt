@@ -17,7 +17,12 @@ lazy val commonSettings = Seq(
   version := "0.1",
   scalaVersion := compilerVersion,
   organization := "edu.rit.csh.jdb",
-  libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.6" % "test")
+  scalacOptions ++= Seq("-Xplugin-require:scalaxy-streams", "-optimise", "-Yclosure-elim", "-Yinline"),
+  autoCompilerPlugins := true,
+  addCompilerPlugin("com.nativelibs4java" %% "scalaxy-streams" % "0.3.4"),
+  libraryDependencies ++= Seq(
+    "org.scalatest" %% "scalatest" % "2.2.6" % "test",
+    "com.storm-enroute" %% "scalameter" % "0.7" % "test"))
 
 /**
  * The Thrift service declarations used for the raft implementation
@@ -38,31 +43,23 @@ lazy val Benchmark = config("bench") extend Test
 
 lazy val serialization = project.in(file("serialization"))
   .settings(commonSettings: _*)
-  .settings(libraryDependencies ++= Seq(
-    "org.slf4j" % "slf4j-log4j12" % "1.7.13",
-    "org.scala-lang" % "scala-reflect" % compilerVersion,
-    "com.storm-enroute" %% "scalameter" % "0.7",
-    "com.nativelibs4java" %% "scalaxy-streams" % "0.3.4" % "provided"),
-    testFrameworks += new TestFramework("org.scalameter.ScalaMeterFramework"),
-    logBuffered := false,
-    parallelExecution in Benchmark := false)
-  .settings(
-    libraryDependencies := {
-      CrossVersion.partialVersion(scalaVersion.value) match {
-        // if scala 2.11+ is used, quasiquotes are merged into scala-reflect
-        case Some((2, scalaMajor)) if scalaMajor >= 11 => libraryDependencies.value
-        // in Scala 2.10, quasiquotes are provided by macro paradise
-        case Some((2, 10)) => libraryDependencies.value ++ Seq(
-          compilerPlugin("org.scalamacros" % "paradise" % "2.0.0" cross CrossVersion.full),
-          "org.scalamacros" %% "quasiquotes" % "2.0.0" cross CrossVersion.binary)
-      }
-    })
   .settings(
     libraryDependencies ++= Seq(
+      "org.slf4j" % "slf4j-log4j12" % "1.7.13",
+      "org.scala-lang" % "scala-reflect" % compilerVersion,
       "org.apache.thrift" % "libthrift" % "0.9.2",
       "com.twitter" %% "scrooge-core" % "4.3.0",
-      "com.twitter" %% "finagle-thrift" % "6.31.0"
-    ),
+      "com.twitter" %% "finagle-thrift" % "6.31.0"),
+    testFrameworks += new TestFramework("org.scalameter.ScalaMeterFramework"),
+    logBuffered := false,
+    parallelExecution in Benchmark := false,
+    libraryDependencies := { CrossVersion.partialVersion(scalaVersion.value) match {
+      case Some((2, scalaMajor)) if scalaMajor >= 11 => libraryDependencies.value
+      case Some((2, 10)) => libraryDependencies.value ++ Seq(
+        compilerPlugin("org.scalamacros" % "paradise" % "2.0.0" cross CrossVersion.full),
+        "org.scalamacros" %% "quasiquotes" % "2.0.0" cross CrossVersion.binary)
+      }
+    },
     scroogeThriftSourceFolder in Compile <<= baseDirectory {
       base => base / "src/bench/thrift"
     })
@@ -91,6 +88,7 @@ lazy val server = project.in(file("server"))
     name := "server",
     assemblySettings,
     jarName in assembly := "jdb.jar",
+    excludedJars in assembly := (fullClasspath in assembly).value filter {_.data.getName == "asm-3.1.jar"},
     libraryDependencies ++= Seq(
       "com.github.finagle" %% "finch-core" % "0.9.2",
       "com.github.finagle" %% "finch-circe" % "0.9.2",
