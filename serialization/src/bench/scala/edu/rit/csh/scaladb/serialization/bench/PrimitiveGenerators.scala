@@ -10,16 +10,16 @@ import scala.collection.mutable
 
 trait PrimitiveGenerators {
 
-  val length = Gen.range("length")(0, 10000, 1000)
-  val characters = Gen.range("value")(Char.MinValue, Char.MaxValue, Char.MaxValue / 8).map(_.toChar)
-  val integers = Gen.range("value")(Int.MinValue, Int.MaxValue, Int.MaxValue / 4)
+  val length = Gen.range("length")(0, 50000, 1000)
+  val characters = Gen.range("value")(Char.MinValue, Char.MaxValue, Char.MaxValue / 4).map(_.toChar)
+  val integers = Gen.range("value")(Int.MinValue, Int.MaxValue, Int.MaxValue / 2)
   val doubles = integers.map(_.toDouble)
   val longs = integers.map(_.toLong)
   val floats = integers.map(_.toFloat)
   val strings = length.map { len =>
     val builder = new StringBuilder(len)
     (0 to len).foreach(_ => builder.append(" "))
-    builder.toString
+    builder.toString()
   }
   val booleans = Gen.enumeration("booleans")(true, false)
   val maps = length.map { len =>

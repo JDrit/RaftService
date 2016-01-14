@@ -20,9 +20,7 @@ lazy val commonSettings = Seq(
   scalacOptions ++= Seq("-Xplugin-require:scalaxy-streams", "-optimise", "-Yclosure-elim", "-Yinline"),
   autoCompilerPlugins := true,
   addCompilerPlugin("com.nativelibs4java" %% "scalaxy-streams" % "0.3.4"),
-  libraryDependencies ++= Seq(
-    "org.scalatest" %% "scalatest" % "2.2.6" % "test",
-    "com.storm-enroute" %% "scalameter" % "0.7" % "test"))
+  libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.6" % "test")
 
 /**
  * The Thrift service declarations used for the raft implementation
@@ -49,7 +47,8 @@ lazy val serialization = project.in(file("serialization"))
       "org.scala-lang" % "scala-reflect" % compilerVersion,
       "org.apache.thrift" % "libthrift" % "0.9.2",
       "com.twitter" %% "scrooge-core" % "4.3.0",
-      "com.twitter" %% "finagle-thrift" % "6.31.0"),
+      "com.twitter" %% "finagle-thrift" % "6.31.0",
+      "com.storm-enroute" %% "scalameter" % "0.7"),
     testFrameworks += new TestFramework("org.scalameter.ScalaMeterFramework"),
     logBuffered := false,
     parallelExecution in Benchmark := false,
@@ -65,6 +64,7 @@ lazy val serialization = project.in(file("serialization"))
     })
   .configs(Benchmark)
   .settings(inConfig(Benchmark)(Defaults.testSettings): _*)
+
 
 /**
  * Actual Raft implementation. All internal raft logic is kept in this package.

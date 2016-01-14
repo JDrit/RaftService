@@ -18,6 +18,13 @@ class BinaryTest extends FunSuite {
     serTest[Person](person)
   }
 
+  test("Nested Macro Serialization") {
+    case class Nested(test: String)
+    case class Person(name: String, age: Int, nested: Nested)
+    val person = Person("jd", 21, Nested("test"))
+    serTest[Person](person)
+  }
+
   test("Byte Serialization") {
     (Byte.MinValue.toInt to Byte.MaxValue.toInt).foreach { b =>
       serTest[Byte](b.toByte)
@@ -110,18 +117,19 @@ class BinaryTest extends FunSuite {
   }
 
   test("Traversable Serialization") {
-    val trav: Traversable[Int] = (0 to 10).toTraversable
-    serTest(trav)
+    serTest[Traversable[Int]]((0 to 10).toTraversable)
   }
 
   test("List Serialization") {
-    val lst = List(1,2,3,4,5,6,7,8,9,0)
-    serTest[List[Int]](lst)
+    serTest[List[Int]](List(1,2,3,4,5,6,7,8,9,0))
+  }
+
+  test("Seq Serialization") {
+    serTest[Seq[String]](Seq("this", "is", "a", "test"))
   }
 
   test("Set Serialization") {
-    val set = Set(3,5,7,3,2,6,8)
-    serTest(set)
+    serTest[Set[Int]](Set(3,5,7,3,2,6,8))
   }
 
   test("Map Serialization") {

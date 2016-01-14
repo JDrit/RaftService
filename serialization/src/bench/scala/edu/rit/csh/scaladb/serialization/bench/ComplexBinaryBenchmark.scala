@@ -32,39 +32,18 @@ class ComplexBinaryBenchmark extends Bench.OfflineReport with PrimitiveGenerator
   val tupleBytes = tuples.map(_.binary())
 
   performance of "Complex Serialization" in {
-    measure method "arrays" in {
-      using(arrays) in { a => a.binary() }
-    }
-    measure method "lists" in {
-      using(lists) in { l => l.binary() }
-    }
-    measure method "sets" in {
-      using(sets) in { s => s.binary() }
-    }
-    measure method "case classes" in {
-      using(people) in { p => p.binary() }
-    }
-    measure method "tuples" in {
-      using(tuples) in { t => t.binary() }
-    }
-
+    measure method "arrays" in { using(arrays) in { a => a.binary() } }
+    measure method "lists" in { using(lists) in { l => l.binary() } }
+    measure method "sets" in { using(sets) in { s => s.binary() } }
+    measure method "case classes" in { using(people) in { p => p.binary() } }
+    measure method "tuples" in { using(tuples) in { t => t.binary() } }
   }
 
   performance of "Complex Deserialization" in {
-    measure method "arrays" in {
-      using(arrayBytes) in { a => a.parse[Array[Char]] }
-    }
-    measure method "lists" in {
-      using(listBytes) in { l => l.parse[List[Char]] }
-    }
-    measure method "sets" in {
-      using(setBytes) in { l => l.parse[Set[Char]] }
-    }
-    measure method "case classes" in {
-      using(personBytes) in { p => p.parse[Person] }
-    }
-    measure method "tuples" in {
-      using(tupleBytes) in { t => t.parse[(Int, String)] }
-    }
+    measure method "arrays" in { using(arrayBytes) in { a => a.parse[Array[Char]] } }
+    measure method "lists" in { using(listBytes) in { l => l.parse[List[Char]] } }
+    measure method "sets" in { using(setBytes) in { l => l.parse[Set[Char]] } }
+    measure method "case classes" in { using(personBytes) in { p => p.parse[Person] } }
+    measure method "tuples" in { using(tupleBytes) in { t => t.parse[(Int, String)] } }
   }
 }

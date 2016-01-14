@@ -5,6 +5,7 @@ import java.lang.{Double => D, Float => F}
 
 import scala.reflect.ClassTag
 import scala.collection.immutable
+import scala.collection.mutable
 
 object DefaultBinarySerializers {
 
@@ -15,7 +16,7 @@ object DefaultBinarySerializers {
     override def write(b: Byte, buffer: ByteArrayOutput): Unit = buffer.write(b)
   }
 
-  implicit object BasicIntSerializer extends BinarySerializer[Int] {
+  object BasicIntSerializer extends BinarySerializer[Int] {
     override def read(buffer: ByteArrayInput): Int = {
       val bytes = new Array[Byte](4)
       buffer.read(bytes)
@@ -32,7 +33,7 @@ object DefaultBinarySerializers {
     }
   }
 
-  object ZigZagIntSerializer extends BinarySerializer[Int] {
+  implicit object ZigZagIntSerializer extends BinarySerializer[Int] {
     override def read(buffer: ByteArrayInput): Int = {
       var value = 0
       var i = 0
@@ -190,6 +191,21 @@ object DefaultBinarySerializers {
     }
   }
 
+  implicit def optionSerializer[T](implicit ser: BinarySerializer[T]) = new BinarySerializer[Option[T]] {
+    override def read(buffer: ByteArrayInput): Option[T] = if (buffer.deserialize[Boolean])
+      Some(buffer.deserialize[T])
+    else
+      None
+
+    override def write(elem: Option[T], buffer: ByteArrayOutput): Unit = elem match {
+      case Some(e) =>
+        buffer.serialize[Boolean](true)
+        buffer.serialize[T](e)
+      case None =>
+        buffer.serialize[Boolean](false)
+    }
+  }
+
   implicit def arraySerializer[T: ClassTag](implicit ser: BinarySerializer[T]) = new BinarySerializer[Array[T]] {
     override def read(buffer: ByteArrayInput): Array[T] = {
       val len = buffer.deserialize[Int]
@@ -213,73 +229,56 @@ object DefaultBinarySerializers {
     }
   }
 
-  implicit def optionSerializer[T](implicit ser: BinarySerializer[T]) = new BinarySerializer[Option[T]] {
-    override def read(buffer: ByteArrayInput): Option[T] = if (buffer.deserialize[Boolean])
-      Some(buffer.deserialize[T])
-    else
-      None
+  abstract class TraversableSerializer[T, Col <: Traversable[T]] extends BinarySerializer[Col] {
+    def newBuilder(): mutable.Builder[T, Col]
+    val ser: BinarySerializer[T]
 
-    override def write(elem: Option[T], buffer: ByteArrayOutput): Unit = elem match {
-      case Some(e) =>
-        buffer.serialize[Boolean](true)
-        buffer.serialize[T](e)
-      case None =>
-        buffer.serialize[Boolean](false)
-    }
-  }
-
-  implicit def traversableSerializer[T: ClassTag](implicit ser: BinarySerializer[T]) = new BinarySerializer[Traversable[T]] {
-    override def read(buffer: ByteArrayInput): Traversable[T] = {
+    override def read(buffer: ByteArrayInput): Col = {
       val len = buffer.deserialize[Int]
-      val arr = new Array[T](len)
-      (0 until len).foreach(i => arr(i) = ser.read(buffer))
-      arr.toTraversable
+      val builder = newBuilder()
+      builder.sizeHint(len)
+      var i = 0
+      while (i < len) {
+        builder += ser.read(buffer)
+        i += 1
+      }
+      builder.result()
     }
 
-    override def write(elem: Traversable[T], buffer: ByteArrayOutput): Unit = {
+    override def write(elem: Col, buffer: ByteArrayOutput): Unit = {
       buffer.serialize[Int](elem.size)
       elem.foreach(e => ser.write(e, buffer))
     }
   }
 
-  implicit def listSerializer[T](implicit ser: BinarySerializer[Traversable[T]]) = new BinarySerializer[List[T]] {
-    override def read(buffer: ByteArrayInput): List[T] = ser.read(buffer).toList
 
-    override def write(elem: List[T], buffer: ByteArrayOutput): Unit = ser.write(elem.toTraversable, buffer)
+
+  implicit def traversableSerializer[T: ClassTag](implicit s: BinarySerializer[T]) = new TraversableSerializer[T, Traversable[T]] {
+    override def newBuilder() = immutable.Traversable.newBuilder
+    override val ser = s
   }
 
-
-  implicit def setSerializer[T](implicit ser: BinarySerializer[Traversable[T]]) = new BinarySerializer[Set[T]] {
-    override def read(buffer: ByteArrayInput): Set[T] = ser.read(buffer).toSet
-
-    override def write(elem: Set[T], buffer: ByteArrayOutput): Unit = ser.write(elem.toTraversable, buffer)
+  implicit def listSerializer[T](implicit s: BinarySerializer[T]) = new TraversableSerializer[T, List[T]] {
+    override def newBuilder() = immutable.List.newBuilder
+    override val ser = s
   }
 
-  implicit def mapSerializer[K, V](implicit keySer: BinarySerializer[K], valSer: BinarySerializer[V]) = new BinarySerializer[Map[K, V]] {
-    override def read(buffer: ByteArrayInput): Map[K, V] = {
-      val len = buffer.deserialize[Int]
-      var i = 0
-      val b = immutable.Map.newBuilder[K, V]
-      b.sizeHint(len)
-      while (i < len) {
-        b += ((keySer.read(buffer), valSer.read(buffer)))
-        i += 1
-      }
-      b.result()
-    }
-
-    override def write(elem: Map[K, V], buffer: ByteArrayOutput): Unit = {
-      val len = elem.size
-      buffer.serialize[Int](len)
-      elem.foreach { entry =>
-        keySer.write(entry._1, buffer)
-        valSer.write(entry._2, buffer)
-      }
-    }
+  implicit def seqSerializer[T](implicit s: BinarySerializer[T]) = new TraversableSerializer[T, Seq[T]] {
+    override def newBuilder() = immutable.Seq.newBuilder
+    override val ser = s
   }
 
-  implicit def tuple2Serializer[T1, T2](implicit t1Ser: BinarySerializer[T1],
-                                        t2Ser: BinarySerializer[T2]) = new BinarySerializer[(T1, T2)] {
+  implicit def setSerializer[T](implicit s: BinarySerializer[T]) = new TraversableSerializer[T, Set[T]] {
+    override def newBuilder() = immutable.Set.newBuilder
+    override val ser = s
+  }
+
+  implicit def mapSerializer[K, V](implicit s: BinarySerializer[(K, V)]) = new TraversableSerializer[(K, V), Map[K, V]] {
+    override def newBuilder() = immutable.Map.newBuilder
+    override val ser = s
+  }
+
+  implicit def tuple2Serializer[T1, T2](implicit t1Ser: BinarySerializer[T1], t2Ser: BinarySerializer[T2]) = new BinarySerializer[(T1, T2)] {
     override def read(buffer: ByteArrayInput): (T1, T2) = (t1Ser.read(buffer), t2Ser.read(buffer))
 
     override def write(elem: (T1, T2), buffer: ByteArrayOutput): Unit = {

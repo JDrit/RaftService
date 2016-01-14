@@ -3,51 +3,20 @@ package edu.rit.csh.scaladb.serialization.binary
 import java.io.OutputStream
 import java.nio.ByteBuffer
 
-import ByteBufferedOutputStream._
+class ByteBufferedOutputStream(size: Int = 32) extends OutputStream {
 
-object ByteBufferedOutputStream {
-  val DEFAULT_INCREASING_FACTOR = 1.5f
-}
+  private var buffer: ByteBuffer = ByteBuffer.allocate(size)
+  private var n = 0
 
-class ByteBufferedOutputStream(size: Int, increasingBy: Float, private var onHeap: Boolean) extends OutputStream {
-
-  var buffer: ByteBuffer = if (onHeap) ByteBuffer.allocate(size) else ByteBuffer.allocateDirect(size)
-
-  private val increasing: Float = DEFAULT_INCREASING_FACTOR
-
-  if (increasingBy <= 1) {
-    throw new IllegalArgumentException("Increasing Factor must be greater than 1.0")
-  }
-
-  def this(size: Int) {
-    this(size, DEFAULT_INCREASING_FACTOR, false)
-  }
-
-  def this(size: Int, onHeap: Boolean) {
-    this(size, DEFAULT_INCREASING_FACTOR, onHeap)
-  }
-
-  def this(size: Int, increasingBy: Float) {
-    this(size, increasingBy, false)
-  }
-
-  override def write(b: Array[Byte], off: Int, len: Int) {
-    val position = buffer.position()
-    val limit = buffer.limit()
-    val newTotal = position + len
-    if (newTotal > limit) {
-      var capacity = (buffer.capacity() * increasing).toInt
-      while (capacity <= newTotal) {
-        capacity = (capacity * increasing).toInt
-      }
-      increase(capacity)
-    }
+  override def write(b: Array[Byte], off: Int, len: Int): Unit = {
+    ensureSize(len)
     buffer.put(b, 0, len)
   }
 
   override def write(b: Int) {
-    if (!buffer.hasRemaining()) {
-      increase((buffer.capacity() * increasing).toInt)
+    if (!buffer.hasRemaining) {
+      n += 1
+      increase(buffer.capacity() * math.pow(2, n).toInt)
     }
     buffer.put(b.toByte)
   }
@@ -56,7 +25,7 @@ class ByteBufferedOutputStream(size: Int, increasingBy: Float, private var onHea
     buffer.limit(buffer.position())
     buffer.rewind()
     var newBuffer: ByteBuffer = null
-    newBuffer = if (onHeap) ByteBuffer.allocate(newCapacity) else ByteBuffer.allocateDirect(newCapacity)
+    newBuffer = ByteBuffer.allocate(newCapacity)
     newBuffer.put(buffer)
     buffer.clear()
     buffer = newBuffer
@@ -64,5 +33,32 @@ class ByteBufferedOutputStream(size: Int, increasingBy: Float, private var onHea
 
   def capacity(): Long = buffer.capacity()
 
-  def array(): Array[Byte] = buffer.array()
+  def ensureSize(len: Int): Unit = {
+    val position = buffer.position()
+    val limit = buffer.limit()
+    val newTotal = position + len
+    if (newTotal > limit) {
+      n += 1
+      var capacity = buffer.capacity() * math.pow(2, n).toInt
+      while (capacity <= newTotal) {
+        n += 1
+        capacity = capacity * math.pow(2, n).toInt
+      }
+      increase(capacity)
+    }
+  }
+
+  /**
+   * Returns a byte array of the written data so far. This is a new copy of the data
+   * @return
+   */
+  def array(): Array[Byte] = {
+    /*val position = buffer.position()
+    val arr = new Array[Byte](position)
+    buffer.clear()
+    buffer.get(arr)
+    buffer.position(position)
+    arr*/
+    buffer.array()
+  }
 }
