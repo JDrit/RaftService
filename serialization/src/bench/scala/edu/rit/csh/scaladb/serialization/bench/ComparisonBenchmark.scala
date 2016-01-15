@@ -17,7 +17,7 @@ trait Serialization extends Bench.OfflineReport with ComparisonGenerators {
     //measure method "Int Thrift" in { using(intThrift) in thriftToBytes }
     //measure method "Int Case" in { using(intCase) in { msg => msg.binary() } }
 
-    //measure method "List Thrift" in { using(listThrift) in thriftToBytes }
+    measure method "List Thrift" in { using(listThrift) in thriftToBytes }
     measure method "old List Case" in { using(listCase) in { msg => msg.oldBinary() } }
     measure method "old Array Case" in { using(arrayCase) in { msg => msg.oldBinary() } }
     measure method "new List Case" in { using(listCase) in { msg => msg.binary() } }

@@ -10,9 +10,9 @@ import scala.reflect.ClassTag
 
 class BinaryTest extends FunSuite {
 
-  def serTest[T: ClassTag](elem: T)(implicit ser: BinarySerializer[T]): Unit = assert(elem === elem.binary().parse[T])
+  def serTest[T: ClassTag](elem: T)(implicit ser: BinarySerializer[T]): Unit = assert(elem === elem.oldBinary().parse[T])
 
-  /*test("Macro Serialization") {
+  test("Macro Serialization") {
     case class Person(name: String, age: Int, lst: List[Long])
     val person = Person("jd", 21, List(4L, 5L))
     serTest[Person](person)
@@ -23,7 +23,7 @@ class BinaryTest extends FunSuite {
     case class Person(name: String, age: Int, nested: Nested)
     val person = Person("jd", 21, Nested("test"))
     serTest[Person](person)
-  }*/
+  }
 
   test("Byte Serialization") {
     (Byte.MinValue.toInt to Byte.MaxValue.toInt).foreach { b =>
@@ -32,43 +32,27 @@ class BinaryTest extends FunSuite {
   }
 
   test("Char Serialization") {
-    (Char.MinValue to Char.MaxValue).foreach { c =>
-      serTest[Char](c)
-    }
+    (Char.MinValue to Char.MaxValue).foreach(serTest[Char])
+  }
+
+  test("Short Serialization") {
+    (Short.MinValue.toInt to Short.MaxValue.toInt).foreach(s => serTest[Short](s.toShort))
   }
 
   test("Int Serialization") {
-    serTest[Int](0)
-    serTest[Int](21)
-    serTest[Int](-5)
-    serTest[Int](500)
-    serTest[Int](-500)
-    serTest[Int](Int.MaxValue)
-    serTest[Int](Int.MinValue)
+    List(0, 21, -5, 500, -500, Int.MaxValue, Int.MinValue).foreach(serTest[Int])
   }
 
   test("Long Serialization") {
-    serTest[Long](5L)
-    serTest[Long](-5L)
-    serTest[Long](0L)
-    serTest[Long](Long.MaxValue)
-    serTest[Long](Long.MinValue)
+    List(5L, -5L, 0L, Long.MaxValue, Long.MinValue).foreach(serTest[Long])
   }
 
   test("Double Serialization") {
-    serTest[Double](2.0)
-    serTest[Double](20.5)
-    serTest[Double](-20.5)
-    serTest[Double](Double.MaxValue)
-    serTest[Double](Double.MinValue)
+    List(2.0, 20.5, -20.5, Double.MaxValue, Double.MinValue).foreach(serTest[Double])
   }
 
   test("Float Serialization") {
-    serTest[Float](0f)
-    serTest[Float](100f)
-    serTest[Float](-100f)
-    serTest[Float](Float.MaxValue)
-    serTest[Float](Float.MinValue)
+    List(0f, 100f, -100f, Float.MaxValue, Float.MinValue).foreach(serTest[Float])
   }
 
   test("String Serialization") {
@@ -132,7 +116,7 @@ class BinaryTest extends FunSuite {
     serTest[Set[Int]](Set(3,5,7,3,2,6,8))
   }
 
-  /*test("Map Serialization") {
+  test("Map Serialization") {
     val map = Map(1 -> Some("one"), 2 -> Some("two"), 3 -> None)
     serTest(map)
   }
@@ -145,7 +129,7 @@ class BinaryTest extends FunSuite {
     serTest((1, 2, 3, 4, 5, 6))
   }
 
-  test("Implicit Serialization") {
+  /*test("Implicit Serialization") {
     val elem: (Int, Int, List[String]) = (1,2, List("String"))
     val arr = elem.binary()
     assert(arr.parse[(Int, Int, List[String])] === elem)

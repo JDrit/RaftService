@@ -1,6 +1,5 @@
 package edu.rit.csh.scaladb.serialization.bench
 
-import edu.rit.csh.scaladb.serialization.binary.BinaryMacro
 import edu.rit.csh.scaladb.serialization.binary.BinarySerializer._
 import edu.rit.csh.scaladb.serialization.binary.BinaryMacro._
 import edu.rit.csh.scaladb.serialization.binary.DefaultBinarySerializers._

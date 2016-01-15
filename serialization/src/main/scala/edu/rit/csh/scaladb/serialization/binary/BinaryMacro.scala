@@ -18,10 +18,8 @@ object BinaryMacro {
     def write(fields: List[MethodSymbol]): c.Tree = fields match {
       case Nil => q"Unit"
       case f :: fs =>
-        q"""
-           buffer.serialize(elem.${f.name})
-           ${write(fs)}
-         """
+        q"""buffer.serialize(elem.$f)
+           ${write(fs)}"""
     }
 
     def newWrite(fields: List[MethodSymbol]): c.Tree = fields match {

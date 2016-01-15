@@ -14,7 +14,7 @@ object DefaultBinarySerializers {
 
     override val size = 1
 
-    override def read(buffer: ByteArrayInput): Byte = buffer.read.toByte
+    override def read(buffer: ByteArrayInput): Byte = buffer.read().toByte
 
     override def write(b: Byte, buffer: ByteArrayOutput): Unit = buffer.write(b)
 
@@ -25,9 +25,7 @@ object DefaultBinarySerializers {
   }
 
   object BasicIntSerializer extends StaticSerializer[Int] {
-
     override val size = 4
-
     override def read(buffer: ByteArrayInput): Int = {
       val bytes = new Array[Byte](4)
       buffer.read(bytes)
@@ -92,23 +90,31 @@ object DefaultBinarySerializers {
     }
   }
 
-  implicit object CharSerializer extends StaticSerializer[Char] {
-
+  implicit object ShortSerializer extends StaticSerializer[Short] {
     override val size = 2
-
-    override def read(buffer: ByteArrayInput): Char = buffer.deserialize[Byte].toChar
-
-    override def write(elem: Char, buffer: ByteArrayOutput): Unit = buffer.serialize[Byte](elem.toByte)
-
-    override def write(c: Char, offset: Int, buffer: Array[Byte]): Int = {
-      implicitly[BinarySerializer[Byte]].write(c.toByte, offset, buffer)
+    override def read(buffer: ByteArrayInput): Short = {
+      ((buffer.read() << 8) + (buffer.read() & 255)).asInstanceOf[Short]
+    }
+    override def write(s: Short, buffer: ByteArrayOutput): Unit = {
+      buffer.write(s >>> 8)
+      buffer.write(s)
+    }
+    override def write(s: Short, offset: Int, buffer: Array[Byte]): Int = {
+      buffer(offset) = (s >>> 8).asInstanceOf[Byte]
+      buffer(offset + 1) = s.asInstanceOf[Byte]
+      offset + 2
     }
   }
 
+  implicit object CharSerializer extends StaticSerializer[Char] {
+    override val size = ShortSerializer.size
+    override def read(buffer: ByteArrayInput): Char = ShortSerializer.read(buffer).toChar
+    override def write(elem: Char, buffer: ByteArrayOutput): Unit = ShortSerializer.write(elem.toShort, buffer)
+    override def write(c: Char, offset: Int, buffer: Array[Byte]): Int = ShortSerializer.write(c.toShort, offset, buffer)
+  }
+
   implicit object ZigZagLongSerializer extends StaticSerializer[Long] {
-
     override val size = 10
-
     override def read(buffer: ByteArrayInput): Long = {
       var value = 0L
       var i = 0
@@ -121,7 +127,6 @@ object DefaultBinarySerializers {
       val raw = value | (b << i)
       ((((raw << 63) >> 63) ^ raw) >> 1) ^ (raw & (1L << 63))
     }
-
     override def write(l: Long, offset: Int, buffer: Array[Byte]): Int = {
       var index = offset
       var value = (l << 1) ^ (l >> 63)
@@ -133,7 +138,6 @@ object DefaultBinarySerializers {
       buffer(index) = (value & 0x7F).toByte
       index + 1
     }
-
     override def write(l: Long, buffer: ByteArrayOutput): Unit = {
       var value = (l << 1) ^ (l >> 63)
       while ((value & 0xFFFFFFFFFFFFFF80L) != 0L) {
@@ -145,13 +149,9 @@ object DefaultBinarySerializers {
   }
 
   implicit object DoubleSerializer extends StaticSerializer[Double] {
-
     override val size = 10
-
     override def read(buffer: ByteArrayInput): Double = D.longBitsToDouble(ZigZagLongSerializer.read(buffer))
-
     override def write(d: Double, buffer: ByteArrayOutput): Unit = ZigZagLongSerializer.write(D.doubleToLongBits(d), buffer)
-
     override def write(d: Double, offset: Int, buffer: Array[Byte]): Int = ZigZagLongSerializer.write(D.doubleToLongBits(d), offset, buffer)
   }
 
@@ -433,13 +433,7 @@ object DefaultBinarySerializers {
 
   implicit def tuple2Serializer[T1, T2](implicit t1Ser: BinarySerializer[T1], t2Ser: BinarySerializer[T2]) = new DynamicSerializer[(T1, T2)] {
 
-    override def size(elem: (T1, T2)): Int = (t1Ser match {
-      case ser: StaticSerializer[T1] => ser.size
-      case ser: DynamicSerializer[T1] => ser.size(elem._1)
-    }) + (t2Ser match {
-      case ser: StaticSerializer[T2] => ser.size
-      case ser: DynamicSerializer[T2] => ser.size(elem._2)
-    })
+    override def size(elem: (T1, T2)): Int = t1Ser.size(elem._1) + t2Ser.size(elem._2)
 
     override def read(buffer: ByteArrayInput): (T1, T2) = (t1Ser.read(buffer), t2Ser.read(buffer))
 
@@ -453,9 +447,12 @@ object DefaultBinarySerializers {
     }
   }
 
-  /*implicit def tuple3Serializer[T1, T2, T3](implicit t1Ser: BinarySerializer[T1],
+  implicit def tuple3Serializer[T1, T2, T3](implicit t1Ser: BinarySerializer[T1],
                                             t2Ser: BinarySerializer[T2],
                                             t3Ser: BinarySerializer[T3]) = new BinarySerializer[(T1, T2, T3)] {
+
+    override def size(elem: (T1, T2, T3)): Int = t1Ser.size(elem._1) + t2Ser.size(elem._2) + t3Ser.size(elem._3)
+
     override def read(buffer: ByteArrayInput): (T1, T2, T3) = {
       (t1Ser.read(buffer), t2Ser.read(buffer), t3Ser.read(buffer))
     }
@@ -465,12 +462,22 @@ object DefaultBinarySerializers {
       t2Ser.write(elem._2, buffer)
       t3Ser.write(elem._3, buffer)
     }
+
+    override def write(elem: (T1, T2, T3), offset: Int, buffer: Array[Byte]): Int = {
+      var newOffset = t1Ser.write(elem._1, offset, buffer)
+      newOffset = t2Ser.write(elem._2, newOffset, buffer)
+      t3Ser.write(elem._3, newOffset, buffer)
+    }
   }
 
   implicit def tuple4Serializer[T1, T2, T3, T4](implicit t1Ser: BinarySerializer[T1],
                                                 t2Ser: BinarySerializer[T2],
                                                 t3Ser: BinarySerializer[T3],
                                                 t4Ser: BinarySerializer[T4]) = new BinarySerializer[(T1, T2, T3, T4)] {
+
+    override def size(elem: (T1, T2, T3, T4)): Int = t1Ser.size(elem._1) + t2Ser.size(elem._2) +
+      t3Ser.size(elem._3) + t4Ser.size(elem._4)
+
     override def read(buffer: ByteArrayInput): (T1, T2, T3, T4) = {
       (t1Ser.read(buffer), t2Ser.read(buffer), t3Ser.read(buffer), t4Ser.read(buffer))
     }
@@ -481,6 +488,13 @@ object DefaultBinarySerializers {
       t3Ser.write(elem._3, buffer)
       t4Ser.write(elem._4, buffer)
     }
+
+    override def write(elem: (T1, T2, T3, T4), offset: Int, buffer: Array[Byte]): Int = {
+      var newOffset = t1Ser.write(elem._1, offset, buffer)
+      newOffset = t2Ser.write(elem._2, newOffset, buffer)
+      newOffset = t3Ser.write(elem._3, newOffset, buffer)
+      t4Ser.write(elem._4, newOffset, buffer)
+    }
   }
 
   implicit def tuple5Serializer[T1, T2, T3, T4, T5](implicit t1Ser: BinarySerializer[T1],
@@ -488,6 +502,10 @@ object DefaultBinarySerializers {
                                                     t3Ser: BinarySerializer[T3],
                                                     t4Ser: BinarySerializer[T4],
                                                     t5Ser: BinarySerializer[T5]) = new BinarySerializer[(T1, T2, T3, T4, T5)] {
+
+    override def size(elem: (T1, T2, T3, T4, T5)): Int = t1Ser.size(elem._1) + t2Ser.size(elem._2) +
+      t3Ser.size(elem._3) + t4Ser.size(elem._4) + t5Ser.size(elem._5)
+
     override def read(buffer: ByteArrayInput): (T1, T2, T3, T4, T5) = {
       (t1Ser.read(buffer), t2Ser.read(buffer), t3Ser.read(buffer), t4Ser.read(buffer), t5Ser.read(buffer))
     }
@@ -499,6 +517,14 @@ object DefaultBinarySerializers {
       t4Ser.write(elem._4, buffer)
       t5Ser.write(elem._5, buffer)
     }
+
+    override def write(elem: (T1, T2, T3, T4, T5), offset: Int, buffer: Array[Byte]): Int = {
+      var newOffset = t1Ser.write(elem._1, offset, buffer)
+      newOffset = t2Ser.write(elem._2, newOffset, buffer)
+      newOffset = t3Ser.write(elem._3, newOffset, buffer)
+      newOffset = t4Ser.write(elem._4, newOffset, buffer)
+      t5Ser.write(elem._5, newOffset, buffer)
+    }
   }
 
   implicit def tuple6Serializer[T1, T2, T3, T4, T5, T6](implicit t1Ser: BinarySerializer[T1],
@@ -507,6 +533,9 @@ object DefaultBinarySerializers {
                                                         t4Ser: BinarySerializer[T4],
                                                         t5Ser: BinarySerializer[T5],
                                                         t6Ser: BinarySerializer[T6]) = new BinarySerializer[(T1, T2, T3, T4, T5, T6)] {
+    override def size(elem: (T1, T2, T3, T4, T5, T6)): Int = t1Ser.size(elem._1) + t2Ser.size(elem._2) +
+      t3Ser.size(elem._3) + t4Ser.size(elem._4) + t5Ser.size(elem._5) + t6Ser.size(elem._6)
+
     override def read(buffer: ByteArrayInput): (T1, T2, T3, T4, T5, T6) = {
       (t1Ser.read(buffer), t2Ser.read(buffer), t3Ser.read(buffer), t4Ser.read(buffer), t5Ser.read(buffer), t6Ser.read(buffer))
     }
@@ -519,5 +548,14 @@ object DefaultBinarySerializers {
       t5Ser.write(elem._5, buffer)
       t6Ser.write(elem._6, buffer)
     }
-  }*/
+
+    override def write(elem: (T1, T2, T3, T4, T5, T6), offset: Int, buffer: Array[Byte]): Int = {
+      var newOffset = t1Ser.write(elem._1, offset, buffer)
+      newOffset = t2Ser.write(elem._2, newOffset, buffer)
+      newOffset = t3Ser.write(elem._3, newOffset, buffer)
+      newOffset = t4Ser.write(elem._4, newOffset, buffer)
+      newOffset = t5Ser.write(elem._5, newOffset, buffer)
+      t6Ser.write(elem._6, newOffset, buffer)
+    }
+  }
 }

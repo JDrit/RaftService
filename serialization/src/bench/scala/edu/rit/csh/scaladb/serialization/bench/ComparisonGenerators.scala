@@ -37,11 +37,11 @@ trait ComparisonGenerators extends PrimitiveGenerators {
   val stringCase = strings.map(StringCase)
   val intThrift = integers.map(int => IntTest(int))
   val intCase = integers.map(IntCase)
-  val listThrift = length.map { len => ListTest((0 until len).map(strLen).toList) }
+  val listThrift = length.map { len => ListTest((0 until len).map(_ => strLen(50)).toList) }
   val listCase = length.map { len => ListCase((0 until len).toList) }
   val arrayCase = length.map { len => ArrayCase((0 until len).toArray) }
-  val setThrift = length.map { len => SetTest((0 to len).map(strLen).toSet) }
-  val setCase = length.map { len => SetTest((0 until len).map(strLen).toSet) }
+  val setThrift = length.map { len => SetTest((0 to len).map(_ => strLen(50)).toSet) }
+  val setCase = length.map { len => SetTest((0 until len).map(_ => strLen(59)).toSet) }
   val mapThrift = maps.map(map => MapTest(map))
   val mapCase = maps.map(map => MapCase(map))
   val personCase = Gen.crossProduct(strings, integers, doubles).map { case (str, int, double) =>

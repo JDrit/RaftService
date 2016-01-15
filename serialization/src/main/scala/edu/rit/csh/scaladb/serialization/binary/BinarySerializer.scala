@@ -7,13 +7,11 @@ abstract class BinarySerializer[T] extends Serializer[T, ByteArrayInput, ByteArr
   def size(elem: T): Int
 }
 
-abstract class DynamicSerializer[T] extends BinarySerializer[T] {
-  def size(elem: T): Int
-}
+abstract class DynamicSerializer[T] extends BinarySerializer[T]
 
 abstract class StaticSerializer[T] extends BinarySerializer[T] {
   val size: Int
-  def size(elem: T): Int = size
+  override final def size(elem: T): Int = size
 }
 
 /**
@@ -29,10 +27,7 @@ object BinarySerializer {
     }
 
     def binary()(implicit ser: BinarySerializer[T]): Array[Byte] = {
-      val size = ser match {
-        case ser: DynamicSerializer[T] => ser.size(any)
-        case ser: StaticSerializer[T] => ser.size
-      }
+      val size = ser.size(any)
       val arr = new Array[Byte](size)
       ser.write(any, 0, arr)
       arr
