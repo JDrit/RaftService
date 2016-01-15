@@ -17,16 +17,8 @@ class ByteArrayInput(val buffer: Array[Byte]) extends Input[Byte] {
   }
 
   override def read(b: Array[Byte], off: Int, len: Int): Int = {
-    var count = 0
-    var i = off
-    while (i < len) {
-      b(i) = read().toByte
-      i += 1
-      count += 1
-    }
-    count
+    System.arraycopy(buffer, index, b, off, len)
+    index += len - off
+    len - off
   }
-
-  def deserialize[T](implicit ser: BinarySerializer[T]): T = ser.read(this)
-
 }

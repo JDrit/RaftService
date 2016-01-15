@@ -16,17 +16,10 @@ object BinaryMacro {
     }.toList
 
     def write(fields: List[MethodSymbol]): c.Tree = fields match {
-      case Nil => q"Unit"
-      case f :: fs =>
-        q"""buffer.serialize(elem.$f)
-           ${write(fs)}"""
-    }
-
-    def newWrite(fields: List[MethodSymbol]): c.Tree = fields match {
       case Nil => q"newOffset"
       case f :: fs =>
         q"""newOffset = implicitly[BinarySerializer[$f]].write(elem.$f, newOffset, buffer)
-            ${newWrite(fs)}"""
+            ${write(fs)}"""
     }
 
     def size(fields: List[MethodSymbol]): c.Tree = fields match {
@@ -34,24 +27,23 @@ object BinaryMacro {
       case f :: fs => q"implicitly[BinarySerializer[$f]].size(elem.${f.name}) + ${size(fs)}"
     }
 
+    println(s"generating macro for $tpe")
+
     q"""new edu.rit.csh.scaladb.serialization.binary.DynamicSerializer[$tpe] {
 
           import edu.rit.csh.scaladb.serialization.binary.DefaultBinarySerializers._
+          import edu.rit.csh.scaladb.serialization.binary.BinaryMacro._
           import edu.rit.csh.scaladb.serialization.binary.{BinarySerializer, ByteArrayInput, ByteArrayOutput}
 
           def size(elem: $tpe) = ${size(fields)}
 
           override def read(buffer: ByteArrayInput): $tpe = {
-            new $tpe(..${fields.map(field => q"""buffer.deserialize[$field]""")})
-          }
-
-          override def write(elem: $tpe, buffer: ByteArrayOutput): Unit = {
-            ${write(fields)}
+            new $tpe(..${fields.map(field => q"implicitly[BinarySerializer[$field]].read(buffer)")})
           }
 
           override def write(elem: $tpe, offset: Int, buffer: Array[Byte]): Int = {
             var newOffset = offset
-            ${newWrite(fields)}
+            ${write(fields)}
           }
        }
      """

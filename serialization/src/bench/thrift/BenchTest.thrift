@@ -11,6 +11,10 @@ struct IntTest {
 }
 
 struct ListTest {
+    1: required list<i32> lst;
+}
+
+struct StrListTest {
     1: required list<string> lst;
 }
 
@@ -19,7 +23,7 @@ struct MapTest {
 }
 
 struct SetTest {
-    1: required set<string> s;
+    1: required set<i32> s;
 }
 
 struct PersonTest {
