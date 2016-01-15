@@ -16,7 +16,7 @@ trait ComparisonGenerators extends PrimitiveGenerators {
   case class IntCase(int: Int)
   case class ArrayCase(lst: Array[Int])
   case class ListCase(lst: List[Int])
-  case class SetCase(set: Set[Int])
+  case class SetCase(set: Set[String])
   case class MapCase(map: Map[String, Int])
   case class Person(name: String, age: Int, height: Double)
 
@@ -24,7 +24,7 @@ trait ComparisonGenerators extends PrimitiveGenerators {
   def thriftToBytes(struct: ThriftStruct): Array[Byte] = {
     val buffer = new TMemoryBuffer(32)
     struct.write(new TCompactProtocol(buffer))
-    buffer.getArray
+    buffer.getBuffer
   }
 
   @inline
@@ -37,11 +37,11 @@ trait ComparisonGenerators extends PrimitiveGenerators {
   val stringCase = strings.map(StringCase)
   val intThrift = integers.map(int => IntTest(int))
   val intCase = integers.map(IntCase)
-  val listThrift = length.map { len => ListTest(Range(0, len, 1)) }
-  val listCase = length.map { len => ListCase(Range(0, len).toList) }
-  val arrayCase = length.map { len => ArrayCase(Range(0, len, 1).toArray) }
-  val setThrift = length.map { len => SetTest((0 to len).toSet) }
-  val setCase = length.map { len => SetCase((0 to len).toSet) }
+  val listThrift = length.map { len => ListTest((0 until len).map(strLen).toList) }
+  val listCase = length.map { len => ListCase((0 until len).toList) }
+  val arrayCase = length.map { len => ArrayCase((0 until len).toArray) }
+  val setThrift = length.map { len => SetTest((0 to len).map(strLen).toSet) }
+  val setCase = length.map { len => SetTest((0 until len).map(strLen).toSet) }
   val mapThrift = maps.map(map => MapTest(map))
   val mapCase = maps.map(map => MapCase(map))
   val personCase = Gen.crossProduct(strings, integers, doubles).map { case (str, int, double) =>
@@ -59,7 +59,7 @@ trait ComparisonGenerators extends PrimitiveGenerators {
   val listCaseBytes = listCase.map(_.binary())
   val arrayCaseBytes = arrayCase.map(_.binary())
   val setThriftBytes = setThrift.map(thriftToBytes)
-  val setCaseBytes = setCase.map(_.binary())
+  //val setCaseBytes = setCase.map(_.binary())
   val mapThriftBytes = mapThrift.map(thriftToBytes)
   val mapCaseBytes = mapCase.map(_.binary())
 }

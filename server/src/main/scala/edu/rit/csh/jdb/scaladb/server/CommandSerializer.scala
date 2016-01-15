@@ -1,7 +1,7 @@
 package edu.rit.csh.jdb.scaladb.server
 
 import edu.rit.csh.scaladb.raft.Command
-import edu.rit.csh.scaladb.serialization.binary.{BinaryMacro, ByteArrayOutput, ByteArrayInput, BinarySerializer}
+import edu.rit.csh.scaladb.serialization.binary.{BinaryMacro, ByteArrayOutput, ByteArrayInput, DynamicSerializer$}
 import edu.rit.csh.scaladb.serialization.binary.DefaultBinarySerializers._
 import edu.rit.csh.scaladb.serialization.binary.BinaryMacro._
 
@@ -16,7 +16,7 @@ object CommandSerializer {
   implicit val aSer = BinaryMacro.materializeSerializer[Append]
   implicit val cSer = BinaryMacro.materializeSerializer[CAS]
 
-  object CommandSerializer extends BinarySerializer[Command] {
+  object CommandSerializer extends DynamicSerializer[Command] {
 
     override def read(buffer: ByteArrayInput): Command = buffer.deserialize[Byte] match {
       case 0 => buffer.deserialize[Get]

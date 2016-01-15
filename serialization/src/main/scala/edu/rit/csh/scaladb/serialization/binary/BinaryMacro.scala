@@ -24,10 +24,24 @@ object BinaryMacro {
          """
     }
 
-    q"""new edu.rit.csh.scaladb.serialization.binary.BinarySerializer[$tpe] {
+    def newWrite(fields: List[MethodSymbol]): c.Tree = fields match {
+      case Nil => q"newOffset"
+      case f :: fs =>
+        q"""newOffset = implicitly[BinarySerializer[$f]].write(elem.$f, newOffset, buffer)
+            ${newWrite(fs)}"""
+    }
+
+    def size(fields: List[MethodSymbol]): c.Tree = fields match {
+      case Nil => q"0"
+      case f :: fs => q"implicitly[BinarySerializer[$f]].size(elem.${f.name}) + ${size(fs)}"
+    }
+
+    q"""new edu.rit.csh.scaladb.serialization.binary.DynamicSerializer[$tpe] {
 
           import edu.rit.csh.scaladb.serialization.binary.DefaultBinarySerializers._
-          import edu.rit.csh.scaladb.serialization.binary.{ByteArrayInput, ByteArrayOutput}
+          import edu.rit.csh.scaladb.serialization.binary.{BinarySerializer, ByteArrayInput, ByteArrayOutput}
+
+          def size(elem: $tpe) = ${size(fields)}
 
           override def read(buffer: ByteArrayInput): $tpe = {
             new $tpe(..${fields.map(field => q"""buffer.deserialize[$field]""")})
@@ -35,6 +49,11 @@ object BinaryMacro {
 
           override def write(elem: $tpe, buffer: ByteArrayOutput): Unit = {
             ${write(fields)}
+          }
+
+          override def write(elem: $tpe, offset: Int, buffer: Array[Byte]): Int = {
+            var newOffset = offset
+            ${newWrite(fields)}
           }
        }
      """

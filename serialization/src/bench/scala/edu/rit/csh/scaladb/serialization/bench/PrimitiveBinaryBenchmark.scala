@@ -12,27 +12,12 @@ class PrimitiveBinaryBenchmark extends Bench.OfflineRegressionReport with Primit
   override def persistor: Persistor = new SerializationPersistor
 
   performance of "Primitive Serialization" in {
-    measure method "integers" in {
-      using(integers) in { i => i.binary() }
-    }
-    measure method "old integers" in {
-      using(integers) in { i => i.binary()(BasicIntSerializer) }
-    }
-    measure method "characters" in {
-      using(characters) in { c => c.binary() }
-    }
-    measure method "booleans" in {
-      using(booleans) in { b => b.binary() }
-    }
-    measure method "doubles" in {
-      using(doubles) in { d => d.binary() }
-    }
-    measure method "longs" in {
-      using(longs) in { l => l.binary() }
-    }
-    measure method "floats" in {
-      using(floats) in { f => f.binary() }
-    }
+    measure method "integers" in { using(integers) in { i => i.binary() } }
+    measure method "characters" in { using(characters) in { c => c.binary() } }
+    measure method "booleans" in { using(booleans) in { b => b.binary() } }
+    measure method "doubles" in { using(doubles) in { d => d.binary() } }
+    measure method "longs" in { using(longs) in { l => l.binary() } }
+    measure method "floats" in { using(floats) in { f => f.binary() } }
     measure method "strings" in {
       using(strings) in { s => s.binary() }
     }

@@ -1,8 +1,5 @@
 package edu.rit.csh.scaladb.serialization.binary
 
-import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
-
 import edu.rit.csh.scaladb.serialization.Output
 
 /**
@@ -16,9 +13,8 @@ class ByteArrayOutput extends Output[Array[Byte], Int] {
 
   override def write(b: Array[Byte], off: Int, len: Int): Unit = buffer.write(b, off, len)
 
-  def serialize[T](elem: T)(implicit ser: BinarySerializer[T]): Unit = ser.write(elem, this)
-
   override def write(i: Int): Unit = buffer.write(i)
 
-  def ensureSize(len: Int): Unit = buffer.ensureSize(len)
+  def serialize[T](elem: T)(implicit ser: BinarySerializer[T]): Unit = ser.write(elem, this)
+
 }
