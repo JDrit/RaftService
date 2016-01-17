@@ -31,3 +31,12 @@ struct PersonTest {
     2: required i32 age;
     3: required double height;
 }
+
+struct CoordinateTest {
+    1: required i32 x;
+    2: required i32 y;
+}
+
+struct CoordinateListsTest {
+    1: required list<CoordinateTest> coords;
+}

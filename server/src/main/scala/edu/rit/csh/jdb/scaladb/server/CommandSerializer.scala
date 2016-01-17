@@ -1,7 +1,7 @@
 package edu.rit.csh.jdb.scaladb.server
 
 import edu.rit.csh.scaladb.raft.Command
-import edu.rit.csh.scaladb.serialization.binary.{BinaryMacro, ByteArrayOutput, ByteArrayInput, DynamicSerializer$}
+import edu.rit.csh.scaladb.serialization.binary._
 import edu.rit.csh.scaladb.serialization.binary.DefaultBinarySerializers._
 import edu.rit.csh.scaladb.serialization.binary.BinaryMacro._
 
@@ -16,32 +16,34 @@ object CommandSerializer {
   implicit val aSer = BinaryMacro.materializeSerializer[Append]
   implicit val cSer = BinaryMacro.materializeSerializer[CAS]
 
+  val byteSer = implicitly[BinarySerializer[Byte]]
+
   object CommandSerializer extends DynamicSerializer[Command] {
 
-    override def read(buffer: ByteArrayInput): Command = buffer.deserialize[Byte] match {
-      case 0 => buffer.deserialize[Get]
-      case 1 => buffer.deserialize[Put]
-      case 2 => buffer.deserialize[Delete]
-      case 3 => buffer.deserialize[CAS]
-      case 4 => buffer.deserialize[Append]
+    override def read(buffer: ByteArrayInput): Command = byteSer.read(buffer) match {
+      case 0 => gSer.read(buffer)
+      case 1 => pSer.read(buffer)
+      case 2 => dSer.read(buffer)
+      case 3 => cSer.read(buffer)
+      case 4 => aSer.read(buffer)
     }
 
-    override def write(elem: Command, buffer: ByteArrayOutput): Unit = elem match {
+    override def write(elem: Command, buffer: BinaryOutput): Unit = elem match {
       case g: Get =>
-        buffer.serialize[Byte](0)
-        buffer.serialize(g)
+        byteSer.write(0, buffer)
+        gSer.write(g, buffer)
       case p: Put =>
-        buffer.serialize[Byte](1)
-        buffer.serialize(p)
+        byteSer.write(1, buffer)
+        pSer.write(p, buffer)
       case d: Delete =>
-        buffer.serialize[Byte](2)
-        buffer.serialize(d)
+        byteSer.write(2, buffer)
+        dSer.write(d, buffer)
       case c: CAS =>
-        buffer.serialize[Byte](3)
-        buffer.serialize(c)
+        byteSer.write(3, buffer)
+        cSer.write(c, buffer)
       case a: Append =>
-        buffer.serialize[Byte](4)
-        buffer.serialize(a)
+        byteSer.write(4, buffer)
+        aSer.write(a, buffer)
     }
   }
 

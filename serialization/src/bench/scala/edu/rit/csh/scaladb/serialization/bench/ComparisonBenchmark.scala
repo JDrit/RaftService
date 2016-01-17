@@ -6,33 +6,49 @@ import edu.rit.csh.scaladb.serialization.binary.BinaryMacro._
 import edu.rit.csh.scaladb.serialization.binary.DefaultBinarySerializers._
 import org.scalameter.api._
 
+import scala.util.Random
+
 
 trait Serialization extends Bench.OfflineReport with ComparisonGenerators {
 
   performance of "Serialization" in {
-  /*
+
     measure method "String Thrift" in { using(stringThrift) in thriftToBytes }
-    measure method "String Case" in { using(stringCase) in { msg => msg.oldBinary() } }
-    measure method "new String Case" in { using(stringCase) in { msg => msg.binary() } }
+    measure method "String Case" in { using(stringCase) in { msg => msg.binary() } }
 
     measure method "Int Thrift" in { using(intThrift) in thriftToBytes }
     measure method "Int Case" in { using(intCase) in { msg => msg.binary() } }
-*/
-    /*measure method "Int List Thrift" in { using(intListThrift) in thriftToBytes }
+
+    measure method "Int List Thrift" in { using(intListThrift) in thriftToBytes }
     measure method "int List Case" in { using(intListCase) in { msg => msg.binary() } }
-    */
+    measure method "int Array Case" in { using(intArrayCase) in { msg => msg.binary() } }
+
     measure method "String List Thrift" in { using(strListThrift) in thriftToBytes }
     measure method "String List Case" in { using(strListCase) in { msg => msg.binary() } }
-    /*measure method "int Array Case" in { using(intArrayCase) in { msg => msg.binary() } }
 
     measure method "Int Set Thrift" in { using(intSetThrift) in thriftToBytes }
     measure method "Int Set Case" in { using(intSetCase) in { msg => msg.binary() } }
-*/
-    //measure method "Map Thrift" in { using(mapThrift) in thriftToBytes }
-    //measure method "Map Case" in { using(mapCase) in { msg => msg.binary() } }
 
-    //measure method "Person Thrift" in { using(personThrift) in thriftToBytes }
-    //measure method "Person Case" in { using(personCase) in { msg => msg.binary() } }
+    measure method "Map Thrift" in { using(mapThrift) in thriftToBytes }
+    measure method "Map Case" in { using(mapCase) in { msg => msg.binary() } }
+
+    measure method "Person Thrift" in { using(personThrift) in thriftToBytes }
+    measure method "Person Case" in { using(personCase) in { msg => msg.binary() } }
+
+
+    case class CoordinateCase(x: Int, y: Int)
+    case class CoordinateListCase(lst: Array[CoordinateCase])
+
+    val coordsCase = length.map { len =>
+      val arr = new Array[CoordinateCase](len)
+      Random.setSeed(100)
+      (0 until len).foreach { i => arr(i) = CoordinateCase(Random.nextInt(), Random.nextInt()) }
+      CoordinateListCase(arr)
+    }
+
+    measure method "Coordinate List Thrift" in { using(coordsThrift) in thriftToBytes }
+    measure method "Coordinate List Case" in { using(coordsCase) in { msg => msg.binary() } }
+
   }
 }
 

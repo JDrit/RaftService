@@ -10,7 +10,7 @@ import scala.collection.mutable
 
 trait PrimitiveGenerators {
 
-  val length = Gen.range("length")(0, 60000, 3000)
+  val length = Gen.range("length")(0, 120000, 6000)
   val characters = Gen.range("value")(Char.MinValue, Char.MaxValue, Char.MaxValue / 4).map(_.toChar)
   val integers = Gen.range("value")(Int.MinValue, Int.MaxValue, Int.MaxValue / 2)
   val doubles = integers.map(_.toDouble)

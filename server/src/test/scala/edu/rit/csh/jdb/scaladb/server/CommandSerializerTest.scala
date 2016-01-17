@@ -9,10 +9,11 @@ class CommandSerializerTest extends FunSuite {
   implicit val cmdSer = CommandSerializer.CommandSerializer
 
   def serTest(elem: Command): Unit = {
-    val output = new ByteArrayOutput
-    output.serialize(elem)
+    val output = cmdSer.generateOutput(elem)
+    cmdSer.write(elem, output)
     val input = new ByteArrayInput(output.output)
-    assert(elem === input.deserialize)
+    val newCommand = cmdSer.read(input)
+    assert(elem === newCommand)
   }
 
   test("Get Serialization") {

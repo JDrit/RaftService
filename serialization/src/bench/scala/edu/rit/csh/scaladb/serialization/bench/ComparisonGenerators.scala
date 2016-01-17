@@ -12,6 +12,7 @@ import org.scalameter.Gen
 
 import scala.collection.mutable
 import scala.collection.immutable
+import scala.util.Random
 
 trait ComparisonGenerators extends PrimitiveGenerators {
 
@@ -23,6 +24,8 @@ trait ComparisonGenerators extends PrimitiveGenerators {
   case class SetCase(set: Set[Int])
   case class MapCase(map: Map[String, Int])
   case class Person(name: String, age: Int, height: Double)
+
+
 
   @inline
   def thriftToBytes(struct: ThriftStruct): Array[Byte] = {
@@ -56,6 +59,15 @@ trait ComparisonGenerators extends PrimitiveGenerators {
   val personThrift = Gen.crossProduct(strings, integers, doubles).map { case (str, int, double) =>
     PersonTest(str, int, double)
   }
+  val coordsThrift = length.map { len =>
+    val builder = List.newBuilder[CoordinateTest]
+    builder.sizeHint(len)
+    Random.setSeed(100)
+    (0 until len).foreach { _ => builder += CoordinateTest(Random.nextInt(), Random.nextInt()) }
+    CoordinateListsTest(builder.result())
+  }
+
+
 
   val stringThriftBytes = stringThrift.map(thriftToBytes)
   val stringCaseBytes = stringCase.map(_.binary())

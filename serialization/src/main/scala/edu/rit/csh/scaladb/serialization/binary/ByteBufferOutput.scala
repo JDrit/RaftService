@@ -1,12 +1,18 @@
 package edu.rit.csh.scaladb.serialization.binary
 
-import java.io.OutputStream
 import java.nio.ByteBuffer
 
-class ByteBufferedOutputStream(size: Int = 32) extends OutputStream {
+/**
+ * Output that is backed by a ByteBuffer. Does automatic resizing when limit is hit.
+ * Resizes to limit * 2 ^ n where n is the number of resizes
+ * @param size the starting size of the buffer
+ */
+class ByteBufferOutput(size: Int = 32) extends BinaryOutput {
 
   private var buffer: ByteBuffer = ByteBuffer.allocate(size)
   private var n = 0
+
+  override def output = buffer.array()
 
   override def write(b: Array[Byte], off: Int, len: Int): Unit = {
     ensureSize(len - off)
@@ -51,4 +57,6 @@ class ByteBufferedOutputStream(size: Int = 32) extends OutputStream {
    * @return
    */
   def array(): Array[Byte] = buffer.array()
+
+  override def toString: String = s"ByteBufferOutput of size: ${buffer.limit()}, current position: ${buffer.position()}"
 }

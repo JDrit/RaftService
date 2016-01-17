@@ -10,11 +10,14 @@ import scala.reflect.ClassTag
 
 class BinaryTest extends FunSuite {
 
-  def serTest[T: ClassTag](elem: T)(implicit ser: BinarySerializer[T]): Unit = assert(elem === elem.binary().parse[T])
+  def serTest[T: ClassTag](elem: T)(implicit ser: BinarySerializer[T]): Unit = {
+    assert(elem === elem.binary().parse[T])
+  }
 
   test("Macro Serialization") {
-    case class Person(name: String, age: Int, lst: List[Long])
-    val person = Person("jd", 21, List(4L, 5L))
+    case class Person(height: Double, age: Int)
+    val person = Person(21.5, 21)
+    serTest[Person](person)
     serTest[Person](person)
   }
 
@@ -36,7 +39,7 @@ class BinaryTest extends FunSuite {
   }
 
   test("Short Serialization") {
-    (Short.MinValue.toInt to Short.MaxValue.toInt).foreach(s => serTest[Short](s.toShort))
+   (Short.MinValue.toInt to Short.MaxValue.toInt).foreach(s => serTest[Short](s.toShort))
   }
 
   test("Int Serialization") {
@@ -78,7 +81,11 @@ class BinaryTest extends FunSuite {
   }
 
   test("Array Serialization") {
+    case class Coord(x: Int, y: Int)
+    case class CoordinateListCase(lst: Array[Coord])
     serTest[Array[Int]]((0 to 10).toArray)
+    val arr = Array(Coord(1, 2), Coord(3, 4), Coord(5, 6))
+    serTest[Array[Coord]](arr)
   }
 
   test("Traversable Serialization") {
@@ -98,15 +105,15 @@ class BinaryTest extends FunSuite {
   }
 
   test("Map Serialization") {
-    val map = Map(1 -> Some("one"), 2 -> Some("two"), 3 -> None)
-    //serTest(map)
+    serTest(Map(1 -> Some("one"), 2 -> Some("two"), 3 -> None))
+    serTest(Map("one" -> 1, "two" -> 2, "three" -> 3))
   }
 
   test("Tuples Serialization") {
-    serTest((1, 2))
+    /*serTest((1, 2))
     serTest((1, 2, 3))
     serTest((1, 2, 3, 4))
     serTest((1, 2, 3, 4, 5))
-    serTest((1, 2, 3, 4, 5, 6))
+    serTest((1, 2, 3, 4, 5, 6))*/
   }
 }

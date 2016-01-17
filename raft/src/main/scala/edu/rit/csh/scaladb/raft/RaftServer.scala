@@ -17,7 +17,7 @@ import edu.rit.csh.scaladb.raft.InternalService.FinagledService
 import edu.rit.csh.scaladb.raft.StateMachine.CommandResult
 import edu.rit.csh.scaladb.raft.SubmitMonad._
 import edu.rit.csh.scaladb.raft.util.Scala2Java8._
-import edu.rit.csh.scaladb.serialization.binary.{ByteArrayOutput, ByteArrayInput, DynamicSerializer$}
+import edu.rit.csh.scaladb.serialization.binary.{BinarySerializer, ByteArrayOutput, ByteArrayInput}
 import org.apache.thrift.protocol.TBinaryProtocol.Factory
 
 import scala.collection.JavaConversions._
@@ -52,7 +52,7 @@ object RaftServer {
     map
   }
 
-  def apply(stateMachine: StateMachine, serializer: DynamicSerializer[Command], address: InetSocketAddress, client: InetSocketAddress,
+  def apply(stateMachine: StateMachine, serializer: BinarySerializer[Command], address: InetSocketAddress, client: InetSocketAddress,
            raftAddrs: Seq[InetSocketAddress], serverAddrs: Seq[InetSocketAddress],
             closeables: Seq[Closable] = Seq.empty): RaftServer = {
     val self = new Peer(address, client)
@@ -87,7 +87,7 @@ object RaftServer {
 class RaftServer private(private[raft] val self: Peer,
                          private[raft] val peers: PeerMap,
                          stateMachine: StateMachine,
-                         serializer: DynamicSerializer[Command],
+                         serializer: BinarySerializer[Command],
                          closeables: Seq[Closable]) extends TwitterServer with Logging {
 
   private val appendCounter = statsReceiver.scope("raft_service").counter("log_appends")
@@ -391,9 +391,9 @@ class RaftServer private(private[raft] val self: Peer,
    */
   def submit(command: Command): SubmitMonad[CommandResult] = this.synchronized {
     val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
-    val bufferOutput = new ByteArrayOutput()
-    serializer.write(command, bufferOutput)
-    val arr = bufferOutput.output
+    val output = serializer.generateOutput(command)
+    serializer.write(command, output)
+    val arr = output.output
     log.debug(s"buffer size: ${arr.length}")
     val logEntry = LogEntry(currentTerm.get, index, Left(ByteBuffer.wrap(arr)))
     broadcastEntry(logEntry)
