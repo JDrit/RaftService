@@ -1,4 +1,4 @@
-package edu.rit.csh.scaladb.raft.serialization.binary
+package edu.rit.csh.scaladb.raft.serialization
 
 import edu.rit.csh.scaladb.serialization.binary._
 import edu.rit.csh.scaladb.serialization.binary.DefaultBinarySerializers._
@@ -110,10 +110,10 @@ class BinaryTest extends FunSuite {
   }
 
   test("Tuples Serialization") {
-    /*serTest((1, 2))
+    serTest((1, 2))
     serTest((1, 2, 3))
     serTest((1, 2, 3, 4))
     serTest((1, 2, 3, 4, 5))
-    serTest((1, 2, 3, 4, 5, 6))*/
+    serTest((1, 2, 3, 4, 5, 6))
   }
 }

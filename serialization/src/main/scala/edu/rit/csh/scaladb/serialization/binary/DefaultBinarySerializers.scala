@@ -305,8 +305,6 @@ object DefaultBinarySerializers {
     }
   }
 
-  /*
-
   implicit def tuple2Serializer[T1, T2](implicit t1Ser: BinarySerializer[T1],
                                         t2Ser: BinarySerializer[T2]) = new BinarySerializer[(T1, T2)] {
 
@@ -317,7 +315,7 @@ object DefaultBinarySerializers {
       size1 + size2
     }
 
-    override def canTestSize = t1Ser.canTestSize && t2Ser.canTestSize
+    override def canGetSize = t1Ser.canGetSize && t2Ser.canGetSize
 
     override def getSize(elem: (T1, T2)): Int = staticSize.getOrElse(t1Ser.getSize(elem._1) + t2Ser.getSize(elem._2))
 
@@ -342,6 +340,8 @@ object DefaultBinarySerializers {
       size1 + size2 + size3
     }
 
+    override def canGetSize = t1Ser.canGetSize && t2Ser.canGetSize && t3Ser.canGetSize
+
     override def getSize(elem: (T1, T2, T3)): Int = staticSize.getOrElse(t1Ser.getSize(elem._1) +
       t2Ser.getSize(elem._2) + t3Ser.getSize(elem._3))
 
@@ -362,6 +362,8 @@ object DefaultBinarySerializers {
                                                 t2Ser: BinarySerializer[T2],
                                                 t3Ser: BinarySerializer[T3],
                                                 t4Ser: BinarySerializer[T4]) = new BinarySerializer[(T1, T2, T3, T4)] {
+
+    override def canGetSize = t1Ser.canGetSize && t2Ser.canGetSize && t3Ser.canGetSize && t4Ser.canGetSize
 
     override val staticSize: Option[Int] = for {
       size1 <- t1Ser.staticSize
@@ -392,6 +394,9 @@ object DefaultBinarySerializers {
                                                     t3Ser: BinarySerializer[T3],
                                                     t4Ser: BinarySerializer[T4],
                                                     t5Ser: BinarySerializer[T5]) = new BinarySerializer[(T1, T2, T3, T4, T5)] {
+
+    override def canGetSize = t1Ser.canGetSize && t2Ser.canGetSize && t3Ser.canGetSize &&
+      t4Ser.canGetSize && t5Ser.canGetSize
 
     override val staticSize: Option[Int] = for {
       size1 <- t1Ser.staticSize
@@ -426,6 +431,9 @@ object DefaultBinarySerializers {
                                                         t5Ser: BinarySerializer[T5],
                                                         t6Ser: BinarySerializer[T6]) = new BinarySerializer[(T1, T2, T3, T4, T5, T6)] {
 
+    override def canGetSize = t1Ser.canGetSize && t2Ser.canGetSize && t3Ser.canGetSize &&
+      t4Ser.canGetSize && t5Ser.canGetSize && t6Ser.canGetSize
+
     override val staticSize: Option[Int] = for {
       size1 <- t1Ser.staticSize
       size2 <- t2Ser.staticSize
@@ -454,6 +462,5 @@ object DefaultBinarySerializers {
       t5Ser.write(elem._5, output)
       t6Ser.write(elem._6, output)
     }
-  }*/
-
+  }
 }

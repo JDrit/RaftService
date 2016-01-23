@@ -13,7 +13,6 @@ private[raft] class Log[T: ClassTag] extends mutable.AbstractBuffer[T] {
   private val log = new java.util.ArrayList[T]()
   private val lock = new Object()
 
-
   /**
    * Returns a sequence representing the range of the log
    * @param start the index to start at inclusive

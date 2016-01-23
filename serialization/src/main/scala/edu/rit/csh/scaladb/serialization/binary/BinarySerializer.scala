@@ -6,11 +6,7 @@ import edu.rit.csh.scaladb.serialization.Serializer
  * The serializer that read / writes binary data for type T
  * @tparam T the data type that this serializer reads + writes
  */
-abstract class BinarySerializer[T] extends Serializer[T] {
-
-  def write(elem: T, binaryOutput: BinaryOutput): Unit
-
-  def read(buffer: ByteArrayInput): T
+abstract class BinarySerializer[T] extends Serializer[T, BinaryOutput, ByteArrayInput] {
 
   /**
    * If the type [[T]] serializes to the same size or if it is dynamic, such as a
@@ -23,6 +19,9 @@ abstract class BinarySerializer[T] extends Serializer[T] {
    */
   def getSize(elem: T): Int
 
+  /**
+    * If this serializer can easily calculate the size that it needs to serialize itself
+    */
   def canGetSize: Boolean
 
   /**

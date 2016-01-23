@@ -393,9 +393,7 @@ class RaftServer private(private[raft] val self: Peer,
     val index = raftLog.lastOption.map(_.index).getOrElse(RaftServer.BASE_INDEX) + 1
     val output = serializer.generateOutput(command)
     serializer.write(command, output)
-    val arr = output.output
-    log.debug(s"buffer size: ${arr.length}")
-    val logEntry = LogEntry(currentTerm.get, index, Left(ByteBuffer.wrap(arr)))
+    val logEntry = LogEntry(currentTerm.get, index, Left(ByteBuffer.wrap(output.output)))
     broadcastEntry(logEntry)
   }
 

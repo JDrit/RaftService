@@ -1,13 +1,13 @@
 package edu.rit.csh.scaladb.serialization.json
 
+import java.io.StringReader
+
 import edu.rit.csh.scaladb.serialization.Input
 
 class JsonInput(str: String) extends Input[Char] {
-  private var index = 0
+  val reader = new StringReader(str)
 
-  override def read(): Int = {
-    val c = str.charAt(index)
-    index += 1
-    c
-  }
+  override def read(): Int = reader.read()
+
+  def readChar(): Char = read().toChar
 }

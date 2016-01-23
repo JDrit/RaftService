@@ -48,6 +48,7 @@ lazy val serialization = project.in(file("serialization"))
       "org.apache.thrift" % "libthrift" % "0.9.2",
       "com.twitter" %% "scrooge-core" % "4.3.0",
       "com.twitter" %% "finagle-thrift" % "6.31.0",
+      "org.apache.commons" % "commons-lang3" % "3.4",
       "com.storm-enroute" %% "scalameter" % "0.7"),
     testFrameworks += new TestFramework("org.scalameter.ScalaMeterFramework"),
     logBuffered := false,
